@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[cfg(any(feature = "cli", feature = "wasm", test))]
+#[cfg(any(feature = "cli", feature = "wasm", feature = "native", test))]
 use std::collections::HashMap;
 
 /// A minimal FSST-compressed vector of UTF-8 strings with random access.
@@ -242,7 +242,7 @@ pub fn build_index(documents: Vec<Document>) -> Result<Index, Box<dyn std::error
 	})
 }
 
-#[cfg(any(feature = "wasm", test))]
+#[cfg(any(feature = "wasm", feature = "native", test))]
 pub fn search(
 	index: &Index,
 	query: &str,
