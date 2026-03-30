@@ -211,7 +211,7 @@ pub fn build_index(documents: Vec<Document>) -> Result<Index, Box<dyn std::error
 		}
 	}
 
-	println!("Extracted {} unique keywords", keywords_to_documents.len());
+	// Keyword count available via the returned Index
 
 	let mut fst_builder = fst::MapBuilder::memory();
 	let mut keyword_to_documents: Vec<Vec<(usize, u8)>> = Vec::new();
