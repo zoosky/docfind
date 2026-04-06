@@ -114,8 +114,38 @@ impl Index {
 	}
 }
 
+/// Configuration for keyword extraction during index building.
+#[cfg(any(feature = "cli", test))]
+#[derive(Debug, Clone)]
+pub struct IndexConfig {
+	/// Maximum single-word keywords to extract from each document body via RAKE.
+	/// Default: 20. Higher values improve recall for large documents but increase
+	/// index size.
+	pub single_word_budget: usize,
+	/// Maximum two-word keywords to extract from each document body via RAKE.
+	/// Default: 10. Higher values improve recall for multi-word phrases.
+	pub multi_word_budget: usize,
+}
+
+#[cfg(any(feature = "cli", test))]
+impl Default for IndexConfig {
+	fn default() -> Self {
+		Self {
+			single_word_budget: 20,
+			multi_word_budget: 10,
+		}
+	}
+}
+
+/// Build a search index from the given documents using default keyword budgets.
 #[cfg(any(feature = "cli", test))]
 pub fn build_index(documents: Vec<Document>) -> Result<Index, Box<dyn std::error::Error>> {
+	build_index_with_config(documents, &IndexConfig::default())
+}
+
+/// Build a search index from the given documents with custom keyword extraction settings.
+#[cfg(any(feature = "cli", test))]
+pub fn build_index_with_config(documents: Vec<Document>, config: &IndexConfig) -> Result<Index, Box<dyn std::error::Error>> {
 	use std::collections::HashSet;
 
 	let stop_words = include_str!("../english.stop")
@@ -174,8 +204,8 @@ pub fn build_index(documents: Vec<Document>) -> Result<Index, Box<dyn std::error
 		}
 
 		let body_keywords = rake.run_fragments(vec![doc.body.as_str()]);
-		let mut single_word_budget = 5;
-		let mut double_word_budget = 3;
+		let mut single_word_budget = config.single_word_budget;
+		let mut double_word_budget = config.multi_word_budget;
 
 		for k in &body_keywords {
 			let keyword = k.keyword.to_lowercase();
