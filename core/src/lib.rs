@@ -145,7 +145,10 @@ pub fn build_index(documents: Vec<Document>) -> Result<Index, Box<dyn std::error
 
 /// Build a search index from the given documents with custom keyword extraction settings.
 #[cfg(any(feature = "cli", test))]
-pub fn build_index_with_config(documents: Vec<Document>, config: &IndexConfig) -> Result<Index, Box<dyn std::error::Error>> {
+pub fn build_index_with_config(
+	documents: Vec<Document>,
+	config: &IndexConfig,
+) -> Result<Index, Box<dyn std::error::Error>> {
 	use std::collections::HashSet;
 
 	let stop_words = include_str!("../english.stop")
@@ -195,7 +198,8 @@ pub fn build_index_with_config(documents: Vec<Document>, config: &IndexConfig) -
 			})
 			.filter(|w| !w.is_empty() && !sw.contains(&w.clone()))
 			.collect::<HashSet<String>>(); // deduplicate
-
+		let mut title_keywords: Vec<String> = title_keywords.into_iter().collect();
+		title_keywords.sort();
 		for tk in title_keywords {
 			if !keyword_set.contains(&tk) {
 				keywords.push((tk.clone(), 90.0));
@@ -203,7 +207,18 @@ pub fn build_index_with_config(documents: Vec<Document>, config: &IndexConfig) -
 			}
 		}
 
-		let body_keywords = rake.run_fragments(vec![doc.body.as_str()]);
+		let mut body_keywords = rake.run_fragments(vec![doc.body.as_str()]);
+		// RAKE collects its candidates in a hash map and sorts by score alone,
+		// so keywords of equal score come out in hash order, and the budget
+		// below would keep a different subset on every run. A total order
+		// (score, then the keyword itself) makes the index a function of the
+		// input, byte for byte.
+		body_keywords.sort_by(|a, b| {
+			b.score
+				.partial_cmp(&a.score)
+				.unwrap_or(std::cmp::Ordering::Equal)
+				.then_with(|| a.keyword.cmp(&b.keyword))
+		});
 		let mut single_word_budget = config.single_word_budget;
 		let mut double_word_budget = config.multi_word_budget;
 
