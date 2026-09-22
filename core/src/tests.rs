@@ -887,4 +887,43 @@ mod tests {
 
 		Ok(())
 	}
+
+	/// Two indexes built from the same documents serialize to the same bytes.
+	/// With many equal-score body keywords and a budget that keeps only a
+	/// few, the subset RAKE's hash-ordered ties would keep differed between
+	/// runs, and so did the index.
+	#[test]
+	fn build_index_is_deterministic_under_a_keyword_budget() {
+		use crate::{Document, IndexConfig, build_index_with_config};
+		let documents = || -> Vec<Document> {
+			(0..40)
+				.map(|n| {
+					// Forty distinct words per body, split into one-word phrases by a
+					// stop word, each scoring the same.
+					let body = (0..40)
+						.map(|w| format!("term{n}x{w}"))
+						.collect::<Vec<_>>()
+						.join(" and ");
+					Document {
+						title: format!("Document {n}"),
+						category: "cat".to_string(),
+						href: format!("/doc-{n}"),
+						body,
+						keywords: None,
+					}
+				})
+				.collect()
+		};
+		let config = IndexConfig {
+			single_word_budget: 3,
+			multi_word_budget: 2,
+		};
+		let first =
+			postcard::to_allocvec(&build_index_with_config(documents(), &config).unwrap()).unwrap();
+		for _ in 0..5 {
+			let again =
+				postcard::to_allocvec(&build_index_with_config(documents(), &config).unwrap()).unwrap();
+			assert_eq!(again, first, "the index bytes are a function of the input");
+		}
+	}
 }
