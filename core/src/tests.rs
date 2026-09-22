@@ -918,12 +918,64 @@ mod tests {
 			single_word_budget: 3,
 			multi_word_budget: 2,
 		};
+		// The control: without the budget the same corpus indexes differently,
+		// which proves the budget cut, the path the ties matter on, ran.
+		let unbudgeted = IndexConfig {
+			single_word_budget: 40,
+			multi_word_budget: 2,
+		};
+		let whole =
+			postcard::to_allocvec(&build_index_with_config(documents(), &unbudgeted).unwrap()).unwrap();
 		let first =
 			postcard::to_allocvec(&build_index_with_config(documents(), &config).unwrap()).unwrap();
+		assert_ne!(
+			whole, first,
+			"the budget kept fewer keywords than the corpus offers"
+		);
 		for _ in 0..5 {
 			let again =
 				postcard::to_allocvec(&build_index_with_config(documents(), &config).unwrap()).unwrap();
-			assert_eq!(again, first, "the index bytes are a function of the input");
+			assert!(
+				again == first,
+				"the index bytes are a function of the input: {} vs {} bytes",
+				again.len(),
+				first.len()
+			);
 		}
+	}
+
+	/// Equal-score keywords are kept in the order a reader meets them, not
+	/// alphabetically: with a budget of two, a body that mentions "zebra"
+	/// before "apple" keeps "zebra".
+	#[test]
+	fn budget_ties_keep_the_body_order() {
+		use crate::{Document, IndexConfig, build_index_with_config, search};
+		let documents = vec![Document {
+			title: "Fruit".to_string(),
+			category: "cat".to_string(),
+			href: "/fruit".to_string(),
+			body: "zebra and yak and apple and banana".to_string(),
+			keywords: None,
+		}];
+		let config = IndexConfig {
+			single_word_budget: 2,
+			multi_word_budget: 0,
+		};
+		let index = build_index_with_config(documents, &config).unwrap();
+		assert_eq!(
+			search(&index, "zebra", 5).unwrap().len(),
+			1,
+			"first in the body, kept"
+		);
+		assert_eq!(
+			search(&index, "yak", 5).unwrap().len(),
+			1,
+			"second in the body, kept"
+		);
+		assert_eq!(
+			search(&index, "apple", 5).unwrap().len(),
+			0,
+			"past the budget, cut"
+		);
 	}
 }
