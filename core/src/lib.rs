@@ -210,13 +210,17 @@ pub fn build_index_with_config(
 		let mut body_keywords = rake.run_fragments(vec![doc.body.as_str()]);
 		// RAKE collects its candidates in a hash map and sorts by score alone,
 		// so keywords of equal score come out in hash order, and the budget
-		// below would keep a different subset on every run. A total order
-		// (score, then the keyword itself) makes the index a function of the
-		// input, byte for byte.
+		// below would keep a different subset on every run. Ties are broken by
+		// where the keyword first appears in the body, so the subset the budget
+		// keeps is the one a reader meets first, the same on every run and on
+		// every page, rather than the alphabetically earliest words sitewide;
+		// the keyword itself settles the rest. total_cmp keeps the order total
+		// even for a score that is not a number.
+		let first_at = |k: &rake::KeywordScore| doc.body.find(k.keyword.as_str()).unwrap_or(usize::MAX);
 		body_keywords.sort_by(|a, b| {
 			b.score
-				.partial_cmp(&a.score)
-				.unwrap_or(std::cmp::Ordering::Equal)
+				.total_cmp(&a.score)
+				.then_with(|| first_at(a).cmp(&first_at(b)))
 				.then_with(|| a.keyword.cmp(&b.keyword))
 		});
 		let mut single_word_budget = config.single_word_budget;
