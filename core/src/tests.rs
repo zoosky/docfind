@@ -917,12 +917,14 @@ mod tests {
 		let config = IndexConfig {
 			single_word_budget: 3,
 			multi_word_budget: 2,
+			body_term_budget: 0,
 		};
 		// The control: without the budget the same corpus indexes differently,
 		// which proves the budget cut, the path the ties matter on, ran.
 		let unbudgeted = IndexConfig {
 			single_word_budget: 40,
 			multi_word_budget: 2,
+			body_term_budget: 0,
 		};
 		let whole =
 			postcard::to_allocvec(&build_index_with_config(documents(), &unbudgeted).unwrap()).unwrap();
@@ -960,6 +962,7 @@ mod tests {
 		let config = IndexConfig {
 			single_word_budget: 2,
 			multi_word_budget: 0,
+			body_term_budget: 0,
 		};
 		let index = build_index_with_config(documents, &config).unwrap();
 		assert_eq!(
@@ -977,5 +980,124 @@ mod tests {
 			0,
 			"past the budget, cut"
 		);
+	}
+
+	/// Ten short German pages: a word that appears only in a body is found.
+	/// RAKE's English stop list left a German body as one sentence-long
+	/// candidate, too long to keep, so no body word was searchable.
+	#[test]
+	fn german_body_words_are_searchable() {
+		use crate::{Document, build_index, search};
+		let filler = "Wir begleiten Menschen auf dem Weg zu mehr innerer Ruhe und \
+		              Klarheit im Alltag, mit Zeit für Fragen und eigene Antworten.";
+		let documents: Vec<Document> = (0..10)
+			.map(|n| {
+				let own = match n {
+					0 => " Wenn der Stress steigt, melden sich die Alarme des Körpers.",
+					1 => " Achtsamkeit hilft, den Wendepunkt früh zu erkennen.",
+					2 => " Im Coaching lösen wir Blockaden Schritt für Schritt.",
+					_ => "",
+				};
+				Document {
+					title: format!("Seite {n} Verstehen"),
+					category: "Seiten".to_string(),
+					href: format!("/seite-{n}"),
+					body: format!("{filler}{own}"),
+					keywords: None,
+				}
+			})
+			.collect();
+		let index = build_index(documents).unwrap();
+		for (query, href) in [
+			("Stress", "/seite-0"),
+			("Alarme", "/seite-0"),
+			("Achtsamkeit", "/seite-1"),
+			("Wendepunkt", "/seite-1"),
+			("Coaching", "/seite-2"),
+			("Blockaden", "/seite-2"),
+		] {
+			let hits = search(&index, query, 10).unwrap();
+			assert_eq!(
+				hits.iter().map(|hit| hit.href.as_str()).collect::<Vec<_>>(),
+				[href],
+				"{query}"
+			);
+		}
+		assert_eq!(
+			search(&index, "Verstehen", 20).unwrap().len(),
+			10,
+			"title words still match"
+		);
+	}
+
+	/// Body terms skip stop words of either language, short words and
+	/// numbers, and stop at the budget; a title hit still ranks first.
+	#[test]
+	fn body_terms_skip_function_words_and_keep_to_the_budget() {
+		use crate::{Document, IndexConfig, build_index_with_config, search};
+		let documents = vec![
+			Document {
+				title: "Erste".to_string(),
+				category: "c".to_string(),
+				href: "/erste".to_string(),
+				body: "und der die das 2026 ab Kompass Kompass Kompass Laterne Laterne Mond".to_string(),
+				keywords: None,
+			},
+			Document {
+				title: "Mond".to_string(),
+				category: "c".to_string(),
+				href: "/mond".to_string(),
+				body: "Ein anderer Text.".to_string(),
+				keywords: None,
+			},
+		];
+		let config = IndexConfig {
+			body_term_budget: 2,
+			..IndexConfig::default()
+		};
+		let index = build_index_with_config(documents, &config).unwrap();
+		let hrefs = |query: &str| {
+			search(&index, query, 10)
+				.unwrap()
+				.into_iter()
+				.map(|hit| hit.href)
+				.collect::<Vec<_>>()
+		};
+		assert_eq!(hrefs("Kompass"), ["/erste"], "the most used term is kept");
+		assert_eq!(hrefs("Laterne"), ["/erste"], "the next one too");
+		assert_eq!(
+			hrefs("Mond"),
+			["/mond"],
+			"past the budget, and the title page ranks first"
+		);
+		assert!(hrefs("2026").is_empty(), "numbers are not terms");
+		assert!(
+			hrefs("der").is_empty(),
+			"German function words are not terms"
+		);
+	}
+
+	/// The index stays a function of its input with body terms on.
+	#[test]
+	fn body_terms_build_the_same_index_every_time() {
+		use crate::{Document, build_index};
+		let documents = || -> Vec<Document> {
+			(0..20)
+				.map(|n| Document {
+					title: format!("Seite {n}"),
+					category: "c".to_string(),
+					href: format!("/s-{n}"),
+					body: (0..80)
+						.map(|w| format!("wort{}x{w}", n % 3))
+						.collect::<Vec<_>>()
+						.join(" "),
+					keywords: None,
+				})
+				.collect()
+		};
+		let first = postcard::to_allocvec(&build_index(documents()).unwrap()).unwrap();
+		for _ in 0..5 {
+			assert!(postcard::to_allocvec(&build_index(documents()).unwrap()).unwrap() == first);
+		}
 	}
 }
