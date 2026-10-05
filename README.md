@@ -96,6 +96,8 @@ Prepare a JSON file with your documents:
 ]
 ```
 
+A document may also carry `"keywords"`, a list of words the page should match, and `"language"`. A language tag whose primary subtag is `de` (`"de"`, `"de-CH"`) reads the body and title with German stop words; anything else, or none, uses English. Body keywords come from phrases of one or two words between stop words and punctuation, so a run of three or more content words is not searchable on its own.
+
 Build the index and generate a WASM module:
 
 ```bash

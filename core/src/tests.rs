@@ -1157,7 +1157,7 @@ mod tests {
 		let cases: [(&str, &[&str]); 6] = [
 			(
 				"a b, word. 1.5 node.js; d (e) f\ng – h",
-				&["a b", "word", "1.5 node.js", "d", "e", "f", "g", "h"],
+				&["a b", "word", "1.5 node.js", "d", "e", "f g", "h"],
 			),
 			(
 				"Angebote\n- Achtsamkeit üben\n- Coaching\n## Stress im Alltag\n| Spalte | Wert |",
@@ -1195,15 +1195,22 @@ mod tests {
 				"Use tools, e.g., hammers. Also i.e.: nails. Kinder- und Jugendhilfe",
 				&[
 					"Use tools",
+					"e.g",
 					"hammers",
-					"Also",
+					"Also i.e",
 					"nails",
 					"Kinder und Jugendhilfe",
 				],
 			),
 			(
-				"one\rtwo\u{2028}three und/oder vier",
-				&["one", "two", "three und", "oder vier"],
+				"one\r\ntwo\r\n\r\nthree und/oder vier\u{2029}fünf. CI/CD for user(s) (see U.K.).",
+				&[
+					"one two",
+					"three und/oder vier",
+					"fünf",
+					"CI/CD for user(s)",
+					"see U.K",
+				],
 			),
 		];
 		for (text, expected) in cases {
@@ -1281,7 +1288,7 @@ mod tests {
 	#[test]
 	fn short_words_and_function_word_titles_stay_findable() {
 		let mut tagged = page("/vs", "Editor", "Ein Werkzeug.");
-		tagged.keywords = Some(vec!["vs".to_string(), "a".to_string()]);
+		tagged.keywords = Some(vec!["vs".to_string(), "Über".to_string()]);
 		let english = |href: &str, title: &str, body: &str| crate::Document {
 			language: Some("en".to_string()),
 			..page(href, title, body)
@@ -1309,8 +1316,7 @@ mod tests {
 		)
 		.unwrap();
 		assert_eq!(hrefs(&index, "KI"), ["/ki"]);
-		// One edit from the author keyword "vs" too, as on main.
-		assert!(hrefs(&index, "JS").contains(&"/js".to_string()));
+		assert_eq!(hrefs(&index, "JS"), ["/js"]);
 		assert_eq!(hrefs(&index, "C#")[0], "/cs");
 		assert_eq!(hrefs(&index, "C++")[0], "/cs");
 		assert_eq!(hrefs(&index, "Über uns")[0], "/uns");
@@ -1319,10 +1325,10 @@ mod tests {
 			["/unset"],
 			"an empty language is unset"
 		);
-		assert_eq!(hrefs(&index, "vs")[0], "/vs");
+		assert_eq!(hrefs(&index, "Über")[0], "/vs", "an author keyword");
 		assert!(
-			!hrefs(&index, "x").contains(&"/vs".to_string()),
-			"no one-letter keyword"
+			!hrefs(&index, "vs").contains(&"/vs".to_string()),
+			"an English stop word in the keywords, dropped as on main"
 		);
 	}
 
@@ -1350,5 +1356,74 @@ mod tests {
 				candidate.keyword
 			);
 		}
+	}
+
+	/// Words the query side keeps whole are indexed whole: a slash compound, a
+	/// bracketed plural, a URL, a dotted initialism and a file extension.
+	#[test]
+	fn compound_words_stay_whole() {
+		let index = crate::build_index(vec![page(
+			"/ci",
+			"Pipelines",
+			"Set up CI/CD here. Notify the user(s) here. See https://example.com/docs. \
+			 Prices differ in the U.K. today. Files end in .js today.",
+		)])
+		.unwrap();
+		for query in [
+			"CI/CD",
+			"user(s)",
+			"https://example.com/docs",
+			"U.K.",
+			".js",
+		] {
+			assert_eq!(hrefs(&index, query), ["/ci"], "{query}");
+		}
+	}
+
+	/// Where an author wraps a paragraph does not change the clauses.
+	#[test]
+	fn soft_wraps_do_not_change_the_clauses() {
+		assert_eq!(
+			crate::clauses("Choose which capabilities\nare active for the plugin\ntoday."),
+			crate::clauses("Choose which capabilities are active for the plugin today.")
+		);
+	}
+
+	/// The tie-break order covers RAKE's candidates under the English list too,
+	/// the path every existing index takes.
+	#[test]
+	fn phrase_order_covers_english_candidates() {
+		let body = "It doesn’t work. Then node.js runs; \"quoted\" words follow. \
+		            Set up CI/CD for user(s) (see U.K.). Files end in .js today.";
+		let words = include_str!("../english.stop")
+			.lines()
+			.filter(|line| !line.is_empty() && !line.starts_with('#'))
+			.map(str::to_lowercase)
+			.collect::<std::collections::HashSet<_>>();
+		let fragments = crate::clauses(body);
+		let order = crate::phrase_order(&fragments, &words);
+		let rake = rake::Rake::new(rake::StopWords::from(words));
+		let candidates = rake.run_fragments(fragments.iter().map(String::as_str));
+		assert!(!candidates.is_empty());
+		for candidate in candidates {
+			assert!(
+				order.contains_key(&candidate.keyword),
+				"{}",
+				candidate.keyword
+			);
+		}
+	}
+
+	/// A title of stop words keeps only words of three letters or more, so
+	/// "About Us" does not answer a query for "JS" one edit away.
+	#[test]
+	fn a_stop_word_title_keeps_no_short_words() {
+		let index = crate::build_index(vec![
+			page("/about", "About Us", "We are a small team."),
+			page("/js", "Scripting", "Write scripts in JS."),
+		])
+		.unwrap();
+		assert_eq!(hrefs(&index, "JS"), ["/js"]);
+		assert_eq!(hrefs(&index, "about")[0], "/about");
 	}
 }

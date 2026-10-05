@@ -150,11 +150,13 @@ impl Default for IndexConfig {
 	}
 }
 
-/// Characters that end a clause wherever they appear.
+/// Characters that end a clause at the edge of a token. Inside a token they
+/// are part of the word, as the query side keeps them: `CI/CD`, `user(s)`
+/// and a URL stay whole.
 #[cfg(any(feature = "cli", test))]
 const CLAUSE_MARKS: &[char] = &[
 	';', '!', '?', '(', ')', '[', ']', '{', '}', '"', '“', '”', '„', '‘', '‚', '«', '»', '‹', '›',
-	'–', '—', '…', '|', '•', '/',
+	'–', '—', '…', '|', '•',
 ];
 
 /// Characters stripped from the ends of a word: quotes and the markup a
@@ -162,18 +164,33 @@ const CLAUSE_MARKS: &[char] = &[
 #[cfg(any(feature = "cli", test))]
 const WORD_EDGES: &[char] = &['\'', '’', '`', '*', '_', '~', '>'];
 
+/// Whether a token's last character is a closing bracket the token opened,
+/// so it belongs to the word: `user(s)`, `array[0]`.
+#[cfg(any(feature = "cli", test))]
+fn closes_inside(token: &str, close: char) -> bool {
+	let open = match close {
+		')' => '(',
+		']' => '[',
+		'}' => '{',
+		_ => return false,
+	};
+	token[..token.len() - close.len_utf8()].contains(open)
+}
+
 /// The clauses of `text`, the fragments RAKE takes keyword candidates from,
 /// as their words joined by single spaces.
 ///
-/// A candidate never spans a clause: one ends at a line break, at a
-/// [`CLAUSE_MARKS`] character, after a word that ends in `.`, `,` or `:`, and
-/// at a token with no letter or digit, such as a list marker, a heading's
-/// `#` or a table's `|`. An abbreviation, a single letter or two letters with
-/// a full stop inside (`z. B.`, `e.g.`), ends a clause and is left out, so it
-/// never becomes a one-letter keyword; `Dr.`, `JS.` and `KI.` stay words. A full stop inside `node.js` or `1.5`, an apostrophe
-/// inside `doesn't` and a hyphen inside `E-Mail` stay part of their word,
-/// and a typographic apostrophe is read as `'`, so a contraction still
-/// matches its stop word.
+/// A candidate never spans a clause: one ends at a blank line or a paragraph
+/// separator, at a [`CLAUSE_MARKS`] character at the edge of a token, after
+/// a word that ends in `.`, `,` or `:`, and at a token with no letter or
+/// digit, such as a list marker, a heading's `#` or a table's `|`. A single
+/// line break is a soft wrap, as in markdown, so where an author wraps a
+/// paragraph does not change the index. A single letter with a full stop,
+/// as in `z. B.`, ends a clause and is left out, so it never becomes a
+/// one-letter keyword; `Dr.`, `U.K.` and `.js` stay words. A full stop
+/// inside `node.js` or `1.5`, an apostrophe inside `doesn't` and a hyphen
+/// inside `E-Mail` stay part of their word, and a typographic apostrophe is
+/// read as `'`, so a contraction still matches its stop word.
 #[cfg(any(feature = "cli", test))]
 fn clauses(text: &str) -> Vec<String> {
 	let mut out = Vec::new();
@@ -184,35 +201,50 @@ fn clauses(text: &str) -> Vec<String> {
 			clause.clear();
 		}
 	};
-	for line in text.split(['\n', '\r', '\u{2028}', '\u{2029}']) {
+	let text = text
+		.replace("\r\n", "\n")
+		.replace('\r', "\n")
+		.replace('\u{2029}', "\n\n");
+	for line in text.split('\n') {
+		if line.trim().is_empty() {
+			flush(&mut clause);
+			continue;
+		}
 		for token in line.split_whitespace() {
-			let mut pieces = token.split(CLAUSE_MARKS).peekable();
-			while let Some(piece) = pieces.next() {
-				let piece = piece.trim_matches(WORD_EDGES);
-				let ends_clause = piece.ends_with(['.', ',', ':']);
-				let word = piece
-					.trim_end_matches(['.', ',', ':', '-'])
-					.trim_matches(WORD_EDGES)
-					.replace('’', "'");
-				let letters = word.chars().filter(|c| c.is_alphanumeric()).count();
-				// `z.`, `B.`, `z.B.`, `e.g.,`: a single letter, or letters with
-				// a full stop inside. `Dr.`, `JS.` or `KI.` are words.
-				let abbreviation = piece.trim_end_matches([',', ':']).ends_with('.')
-					&& letters <= 2
-					&& word.chars().all(|c| c.is_alphabetic() || c == '.')
-					&& (letters == 1 || word.contains('.'));
-				if letters == 0 || abbreviation {
-					flush(&mut clause);
-					continue;
+			let mut core = token;
+			if let Some(stripped) = core.strip_prefix(CLAUSE_MARKS) {
+				flush(&mut clause);
+				core = stripped.trim_start_matches(CLAUSE_MARKS);
+			}
+			// Trailing marks and sentence punctuation, in any order: `U.K.).`
+			let mut ends_clause = false;
+			let mut full_stop = false;
+			while let Some(last) = core.chars().last() {
+				let mark = CLAUSE_MARKS.contains(&last) && !closes_inside(core, last);
+				if !mark && !matches!(last, '.' | ',' | ':') {
+					break;
 				}
-				clause.push(word);
-				if ends_clause || pieces.peek().is_some() {
-					flush(&mut clause);
-				}
+				ends_clause = true;
+				full_stop |= last == '.';
+				core = &core[..core.len() - last.len_utf8()];
+			}
+			let word = core
+				.trim_matches(WORD_EDGES)
+				.trim_end_matches('-')
+				.replace('’', "'");
+			let letters = word.chars().filter(|c| c.is_alphanumeric()).count();
+			let abbreviation = letters == 1 && full_stop && word.chars().all(char::is_alphabetic);
+			if letters == 0 || abbreviation {
+				flush(&mut clause);
+				continue;
+			}
+			clause.push(word);
+			if ends_clause {
+				flush(&mut clause);
 			}
 		}
-		flush(&mut clause);
 	}
+	flush(&mut clause);
 	out
 }
 
@@ -271,24 +303,23 @@ pub fn build_index_with_config(
 			.map(|line| line.to_lowercase())
 			.collect::<HashSet<String>>()
 	};
-	let language_of = |doc: &Document| -> String {
-		doc
-			.language
-			.clone()
-			.filter(|language| !language.is_empty())
-			.unwrap_or_else(|| config.language.clone())
+	let language_of = |doc: &Document| -> bool {
+		is_german(
+			doc
+				.language
+				.as_deref()
+				.filter(|language| !language.is_empty())
+				.unwrap_or(&config.language),
+		)
 	};
 	let english = stop_list(include_str!("../english.stop"));
 	let english_rake = rake::Rake::new(rake::StopWords::from(english.clone()));
 	// Only an index with a German document pays for the German list.
-	let german = documents
-		.iter()
-		.any(|doc| is_german(&language_of(doc)))
-		.then(|| {
-			let words = stop_list(include_str!("../german.stop"));
-			let rake = rake::Rake::new(rake::StopWords::from(words.clone()));
-			(words, rake)
-		});
+	let german = documents.iter().any(|doc| language_of(doc)).then(|| {
+		let words = stop_list(include_str!("../german.stop"));
+		let rake = rake::Rake::new(rake::StopWords::from(words.clone()));
+		(words, rake)
+	});
 
 	let mut strings: Vec<&str> = Vec::new();
 	let mut keywords_to_documents: HashMap<String, Vec<(&Document, f64)>> = HashMap::new();
@@ -305,18 +336,18 @@ pub fn build_index_with_config(
 		let mut keywords: Vec<(String, f64)> = Vec::new();
 
 		let (sw, rake) = match &german {
-			Some((words, rake)) if is_german(&language_of(doc)) => (words, rake),
+			Some((words, rake)) if language_of(doc) => (words, rake),
 			_ => (&english, &english_rake),
 		};
 
-		// Explicit keywords are the author's choice, so no stop list drops
-		// them: "MIT" on a German page stays. A single character does not.
+		// Explicit keywords skip the English stop words only, as before
+		// languages existed: "MIT" or "Über" on a German page stays.
 		if let Some(kw) = &doc.keywords {
 			for k in kw {
 				let keyword = k
 					.trim_matches(|c: char| !c.is_alphanumeric())
 					.to_lowercase();
-				if keyword.chars().count() >= 2 && !keyword_set.contains(&keyword) {
+				if !keyword.is_empty() && !english.contains(&keyword) && !keyword_set.contains(&keyword) {
 					keywords.push((keyword.clone(), 100.0));
 					keyword_set.insert(keyword.clone());
 				}
@@ -324,7 +355,8 @@ pub fn build_index_with_config(
 		}
 
 		// add keywords from title; a title made only of stop words, such as
-		// "Über uns", keeps them all, or its page could not be found by name
+		// "Über uns", keeps those of three letters or more, or its page could
+		// not be found by name
 		let title_words = doc
 			.title
 			.split_whitespace()
@@ -341,6 +373,9 @@ pub fn build_index_with_config(
 			.collect::<HashSet<String>>();
 		let title_keywords = if content_words.is_empty() {
 			title_words
+				.into_iter()
+				.filter(|w| w.chars().count() >= 3)
+				.collect()
 		} else {
 			content_words
 		};
