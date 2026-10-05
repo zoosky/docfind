@@ -1154,7 +1154,7 @@ mod tests {
 	/// letter, never inside a word; one- and two-letter abbreviations go.
 	#[test]
 	fn clauses_split_at_boundaries_only() {
-		let cases: [(&str, &[&str]); 4] = [
+		let cases: [(&str, &[&str]); 6] = [
 			(
 				"a b, word. 1.5 node.js; d (e) f\ng – h",
 				&["a b", "word", "1.5 node.js", "d", "e", "f", "g", "h"],
@@ -1176,6 +1176,7 @@ mod tests {
 					"Wir nutzen",
 					"Atemübungen",
 					"ruhige Momente",
+					"Dr",
 					"Müller hilft",
 				],
 			),
@@ -1189,6 +1190,20 @@ mod tests {
 					"eben",
 					"Single C++ and C#",
 				],
+			),
+			(
+				"Use tools, e.g., hammers. Also i.e.: nails. Kinder- und Jugendhilfe",
+				&[
+					"Use tools",
+					"hammers",
+					"Also",
+					"nails",
+					"Kinder und Jugendhilfe",
+				],
+			),
+			(
+				"one\rtwo\u{2028}three und/oder vier",
+				&["one", "two", "three und", "oder vier"],
 			),
 		];
 		for (text, expected) in cases {
@@ -1258,5 +1273,82 @@ mod tests {
 			"a stop word behind a quote"
 		);
 		assert!(hrefs(&index, "b").is_empty(), "no one-letter keyword");
+	}
+
+	/// Regressions the review of the second version found against main: a
+	/// sentence-final short word, `C#` and `C++` in a body, a title made of
+	/// stop words, an empty document language, and one-letter author keywords.
+	#[test]
+	fn short_words_and_function_word_titles_stay_findable() {
+		let mut tagged = page("/vs", "Editor", "Ein Werkzeug.");
+		tagged.keywords = Some(vec!["vs".to_string(), "a".to_string()]);
+		let english = |href: &str, title: &str, body: &str| crate::Document {
+			language: Some("en".to_string()),
+			..page(href, title, body)
+		};
+		let mut unset = page(
+			"/unset",
+			"Leer",
+			"Wenn der Stress steigt, melden sich Alarme.",
+		);
+		unset.language = Some(String::new());
+		let index = crate::build_index_with_config(
+			vec![
+				english("/js", "Skripte", "Read the FAQ. Use JS."),
+				english(
+					"/cs",
+					"Sprachen",
+					"C# is great. We also like C++ for speed.",
+				),
+				page("/uns", "Über uns", "Wir sind ein kleines Team."),
+				page("/ki", "Werkzeuge", "Wir arbeiten mit KI."),
+				tagged,
+				unset,
+			],
+			&german(),
+		)
+		.unwrap();
+		assert_eq!(hrefs(&index, "KI"), ["/ki"]);
+		// One edit from the author keyword "vs" too, as on main.
+		assert!(hrefs(&index, "JS").contains(&"/js".to_string()));
+		assert_eq!(hrefs(&index, "C#")[0], "/cs");
+		assert_eq!(hrefs(&index, "C++")[0], "/cs");
+		assert_eq!(hrefs(&index, "Über uns")[0], "/uns");
+		assert_eq!(
+			hrefs(&index, "Stress"),
+			["/unset"],
+			"an empty language is unset"
+		);
+		assert_eq!(hrefs(&index, "vs")[0], "/vs");
+		assert!(
+			!hrefs(&index, "x").contains(&"/vs".to_string()),
+			"no one-letter keyword"
+		);
+	}
+
+	/// The tie-break's reading order covers every candidate RAKE returns, so a
+	/// change in how the rake crate splits phrases fails here rather than
+	/// silently reordering ties.
+	#[test]
+	fn phrase_order_covers_every_rake_candidate() {
+		let body = "Wenn der Stress steigt, melden sich die Alarme. Achtsamkeit hilft, \
+		            den Wendepunkt früh zu erkennen. Im Coaching lösen wir Blockaden.";
+		let words = include_str!("../german.stop")
+			.lines()
+			.filter(|line| !line.is_empty() && !line.starts_with('#'))
+			.map(str::to_lowercase)
+			.collect::<std::collections::HashSet<_>>();
+		let fragments = crate::clauses(body);
+		let order = crate::phrase_order(&fragments, &words);
+		let rake = rake::Rake::new(rake::StopWords::from(words));
+		let candidates = rake.run_fragments(fragments.iter().map(String::as_str));
+		assert!(!candidates.is_empty());
+		for candidate in candidates {
+			assert!(
+				order.contains_key(&candidate.keyword),
+				"{}",
+				candidate.keyword
+			);
+		}
 	}
 }

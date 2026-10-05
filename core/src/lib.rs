@@ -89,8 +89,9 @@ pub struct Document {
 	pub href: String,
 	pub body: String,
 	pub keywords: Option<Vec<String>>,
-	/// Language of this document, as in [`IndexConfig::language`], for a
-	/// site that mixes languages. `None` uses the index's language.
+	/// Language of this document, as in `IndexConfig::language`, for a site
+	/// that mixes languages. `None` or an empty string uses the index's
+	/// language.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub language: Option<String>,
 }
@@ -153,7 +154,7 @@ impl Default for IndexConfig {
 #[cfg(any(feature = "cli", test))]
 const CLAUSE_MARKS: &[char] = &[
 	';', '!', '?', '(', ')', '[', ']', '{', '}', '"', '“', '”', '„', '‘', '‚', '«', '»', '‹', '›',
-	'–', '—', '…', '|', '•',
+	'–', '—', '…', '|', '•', '/',
 ];
 
 /// Characters stripped from the ends of a word: quotes and the markup a
@@ -167,9 +168,9 @@ const WORD_EDGES: &[char] = &['\'', '’', '`', '*', '_', '~', '>'];
 /// A candidate never spans a clause: one ends at a line break, at a
 /// [`CLAUSE_MARKS`] character, after a word that ends in `.`, `,` or `:`, and
 /// at a token with no letter or digit, such as a list marker, a heading's
-/// `#` or a table's `|`. An abbreviation of one or two letters, such as
-/// `z. B.` or `Dr.`, ends a clause and is left out, so it never becomes a
-/// one-letter keyword. A full stop inside `node.js` or `1.5`, an apostrophe
+/// `#` or a table's `|`. An abbreviation, a single letter or two letters with
+/// a full stop inside (`z. B.`, `e.g.`), ends a clause and is left out, so it
+/// never becomes a one-letter keyword; `Dr.`, `JS.` and `KI.` stay words. A full stop inside `node.js` or `1.5`, an apostrophe
 /// inside `doesn't` and a hyphen inside `E-Mail` stay part of their word,
 /// and a typographic apostrophe is read as `'`, so a contraction still
 /// matches its stop word.
@@ -183,20 +184,23 @@ fn clauses(text: &str) -> Vec<String> {
 			clause.clear();
 		}
 	};
-	for line in text.lines() {
+	for line in text.split(['\n', '\r', '\u{2028}', '\u{2029}']) {
 		for token in line.split_whitespace() {
 			let mut pieces = token.split(CLAUSE_MARKS).peekable();
 			while let Some(piece) = pieces.next() {
 				let piece = piece.trim_matches(WORD_EDGES);
 				let ends_clause = piece.ends_with(['.', ',', ':']);
 				let word = piece
-					.trim_end_matches(['.', ',', ':'])
+					.trim_end_matches(['.', ',', ':', '-'])
 					.trim_matches(WORD_EDGES)
 					.replace('’', "'");
 				let letters = word.chars().filter(|c| c.is_alphanumeric()).count();
-				let abbreviation = piece.ends_with('.')
+				// `z.`, `B.`, `z.B.`, `e.g.,`: a single letter, or letters with
+				// a full stop inside. `Dr.`, `JS.` or `KI.` are words.
+				let abbreviation = piece.trim_end_matches([',', ':']).ends_with('.')
 					&& letters <= 2
-					&& word.chars().all(|c| c.is_alphabetic() || c == '.');
+					&& word.chars().all(|c| c.is_alphabetic() || c == '.')
+					&& (letters == 1 || word.contains('.'));
 				if letters == 0 || abbreviation {
 					flush(&mut clause);
 					continue;
@@ -267,10 +271,24 @@ pub fn build_index_with_config(
 			.map(|line| line.to_lowercase())
 			.collect::<HashSet<String>>()
 	};
+	let language_of = |doc: &Document| -> String {
+		doc
+			.language
+			.clone()
+			.filter(|language| !language.is_empty())
+			.unwrap_or_else(|| config.language.clone())
+	};
 	let english = stop_list(include_str!("../english.stop"));
-	let german = stop_list(include_str!("../german.stop"));
 	let english_rake = rake::Rake::new(rake::StopWords::from(english.clone()));
-	let german_rake = rake::Rake::new(rake::StopWords::from(german.clone()));
+	// Only an index with a German document pays for the German list.
+	let german = documents
+		.iter()
+		.any(|doc| is_german(&language_of(doc)))
+		.then(|| {
+			let words = stop_list(include_str!("../german.stop"));
+			let rake = rake::Rake::new(rake::StopWords::from(words.clone()));
+			(words, rake)
+		});
 
 	let mut strings: Vec<&str> = Vec::new();
 	let mut keywords_to_documents: HashMap<String, Vec<(&Document, f64)>> = HashMap::new();
@@ -286,37 +304,46 @@ pub fn build_index_with_config(
 		let mut keyword_set: HashSet<String> = HashSet::new();
 		let mut keywords: Vec<(String, f64)> = Vec::new();
 
-		let language = doc.language.as_deref().unwrap_or(&config.language);
-		let (sw, rake) = if is_german(language) {
-			(&german, &german_rake)
-		} else {
-			(&english, &english_rake)
+		let (sw, rake) = match &german {
+			Some((words, rake)) if is_german(&language_of(doc)) => (words, rake),
+			_ => (&english, &english_rake),
 		};
 
 		// Explicit keywords are the author's choice, so no stop list drops
-		// them: "MIT" on a German page or "the" in a band name stays.
+		// them: "MIT" on a German page stays. A single character does not.
 		if let Some(kw) = &doc.keywords {
 			for k in kw {
 				let keyword = k
 					.trim_matches(|c: char| !c.is_alphanumeric())
 					.to_lowercase();
-				if !keyword.is_empty() && !keyword_set.contains(&keyword) {
+				if keyword.chars().count() >= 2 && !keyword_set.contains(&keyword) {
 					keywords.push((keyword.clone(), 100.0));
 					keyword_set.insert(keyword.clone());
 				}
 			}
 		}
 
-		// add keywords from title
-		let title_keywords = doc
+		// add keywords from title; a title made only of stop words, such as
+		// "Über uns", keeps them all, or its page could not be found by name
+		let title_words = doc
 			.title
 			.split_whitespace()
 			.map(|w| {
 				w.trim_matches(|c: char| !c.is_alphanumeric())
 					.to_lowercase()
 			})
-			.filter(|w| !w.is_empty() && !sw.contains(w))
+			.filter(|w| !w.is_empty())
 			.collect::<HashSet<String>>(); // deduplicate
+		let content_words = title_words
+			.iter()
+			.filter(|w| !sw.contains(*w))
+			.cloned()
+			.collect::<HashSet<String>>();
+		let title_keywords = if content_words.is_empty() {
+			title_words
+		} else {
+			content_words
+		};
 		let mut title_keywords: Vec<String> = title_keywords.into_iter().collect();
 		title_keywords.sort();
 		for tk in title_keywords {
@@ -352,9 +379,8 @@ pub fn build_index_with_config(
 		for k in &body_keywords {
 			let keyword = k.keyword.to_lowercase();
 
-			// A keyword needs two letters or digits: a lone letter matches
-			// every short query within one edit.
-			if keyword.chars().filter(|c| c.is_alphanumeric()).count() < 2 {
+			// A lone character matches every short query within one edit.
+			if keyword.chars().count() < 2 {
 				continue;
 			}
 
