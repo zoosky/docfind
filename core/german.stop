@@ -1,10 +1,12 @@
 # Common German function words: articles, pronouns, prepositions, conjunctions,
 # auxiliaries and particles. Written for this fork; lowercase, one per line.
+ab
 aber
 alle
 allem
 allen
 aller
+allerdings
 alles
 als
 also
@@ -19,6 +21,7 @@ anderes
 auch
 auf
 aus
+außerdem
 bei
 beim
 bereits
@@ -48,6 +51,7 @@ darunter
 das
 dass
 dazu
+daß
 dein
 deine
 deinem
@@ -101,6 +105,7 @@ euer
 eure
 eurem
 euren
+falls
 für
 gab
 ganz
@@ -110,12 +115,15 @@ gibt
 ging
 habe
 haben
+hast
 hat
 hatte
 hatten
 hier
 hin
 hinter
+hätte
+hätten
 ich
 ihm
 ihn
@@ -154,6 +162,8 @@ keinem
 keinen
 keiner
 keines
+konnte
+konnten
 können
 könnt
 könnte
@@ -181,17 +191,20 @@ möchten
 müssen
 müsst
 nach
+neben
 nicht
 nichts
 noch
 nun
 nur
 ob
+obwohl
 oder
 ohne
 schon
 sehr
 sei
+seid
 seien
 sein
 seine
@@ -200,7 +213,6 @@ seinen
 seiner
 seines
 seit
-selbst
 sich
 sie
 sind
@@ -216,6 +228,7 @@ sollte
 sondern
 sonst
 sowie
+trotz
 um
 und
 uns
@@ -236,6 +249,7 @@ war
 waren
 warum
 was
+wegen
 weil
 weiter
 welche
@@ -259,6 +273,9 @@ wollte
 worden
 wurde
 wurden
+während
+wäre
+wären
 würde
 würden
 zu
