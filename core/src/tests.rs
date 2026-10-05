@@ -917,14 +917,14 @@ mod tests {
 		let config = IndexConfig {
 			single_word_budget: 3,
 			multi_word_budget: 2,
-			body_term_budget: 0,
+			..IndexConfig::default()
 		};
 		// The control: without the budget the same corpus indexes differently,
 		// which proves the budget cut, the path the ties matter on, ran.
 		let unbudgeted = IndexConfig {
 			single_word_budget: 40,
 			multi_word_budget: 2,
-			body_term_budget: 0,
+			..IndexConfig::default()
 		};
 		let whole =
 			postcard::to_allocvec(&build_index_with_config(documents(), &unbudgeted).unwrap()).unwrap();
@@ -962,7 +962,7 @@ mod tests {
 		let config = IndexConfig {
 			single_word_budget: 2,
 			multi_word_budget: 0,
-			body_term_budget: 0,
+			..IndexConfig::default()
 		};
 		let index = build_index_with_config(documents, &config).unwrap();
 		assert_eq!(
@@ -982,32 +982,56 @@ mod tests {
 		);
 	}
 
+	fn german() -> crate::IndexConfig {
+		crate::IndexConfig {
+			language: "de".to_string(),
+			..crate::IndexConfig::default()
+		}
+	}
+
+	fn page(href: &str, title: &str, body: &str) -> crate::Document {
+		crate::Document {
+			title: title.to_string(),
+			category: "c".to_string(),
+			href: href.to_string(),
+			body: body.to_string(),
+			keywords: None,
+		}
+	}
+
+	fn hrefs(index: &crate::Index, query: &str) -> Vec<String> {
+		crate::search(index, query, 20)
+			.unwrap()
+			.into_iter()
+			.map(|hit| hit.href)
+			.collect()
+	}
+
 	/// Ten short German pages: a word that appears only in a body is found.
-	/// RAKE's English stop list left a German body as one sentence-long
-	/// candidate, too long to keep, so no body word was searchable.
+	/// Under the English stop list a German body came back as one candidate
+	/// per clause, too long to keep, so only title words matched.
 	#[test]
 	fn german_body_words_are_searchable() {
-		use crate::{Document, build_index, search};
 		let filler = "Wir begleiten Menschen auf dem Weg zu mehr innerer Ruhe und \
 		              Klarheit im Alltag, mit Zeit für Fragen und eigene Antworten.";
-		let documents: Vec<Document> = (0..10)
-			.map(|n| {
-				let own = match n {
-					0 => " Wenn der Stress steigt, melden sich die Alarme des Körpers.",
-					1 => " Achtsamkeit hilft, den Wendepunkt früh zu erkennen.",
-					2 => " Im Coaching lösen wir Blockaden Schritt für Schritt.",
-					_ => "",
-				};
-				Document {
-					title: format!("Seite {n} Verstehen"),
-					category: "Seiten".to_string(),
-					href: format!("/seite-{n}"),
-					body: format!("{filler}{own}"),
-					keywords: None,
-				}
-			})
-			.collect();
-		let index = build_index(documents).unwrap();
+		let documents = || -> Vec<crate::Document> {
+			(0..10)
+				.map(|n| {
+					let own = match n {
+						0 => " Wenn der Stress steigt, melden sich die Alarme des Körpers.",
+						1 => " Achtsamkeit hilft, den Wendepunkt früh zu erkennen.",
+						2 => " Im Coaching lösen wir Blockaden Schritt für Schritt.",
+						_ => "",
+					};
+					page(
+						&format!("/seite-{n}"),
+						&format!("Seite {n} Verstehen"),
+						&format!("{filler}{own}"),
+					)
+				})
+				.collect()
+		};
+		let index = crate::build_index_with_config(documents(), &german()).unwrap();
 		for (query, href) in [
 			("Stress", "/seite-0"),
 			("Alarme", "/seite-0"),
@@ -1016,88 +1040,73 @@ mod tests {
 			("Coaching", "/seite-2"),
 			("Blockaden", "/seite-2"),
 		] {
-			let hits = search(&index, query, 10).unwrap();
-			assert_eq!(
-				hits.iter().map(|hit| hit.href.as_str()).collect::<Vec<_>>(),
-				[href],
-				"{query}"
-			);
+			assert_eq!(hrefs(&index, query), [href], "{query}");
 		}
 		assert_eq!(
-			search(&index, "Verstehen", 20).unwrap().len(),
+			hrefs(&index, "Verstehen").len(),
 			10,
 			"title words still match"
 		);
+
+		// The control: under the English list "Wenn der Stress steigt" has no
+		// stop word to split at, so the language is what found "Stress".
+		let english = crate::build_index(documents()).unwrap();
+		assert!(hrefs(&english, "Stress").is_empty());
 	}
 
-	/// Body terms skip stop words of either language, short words and
-	/// numbers, and stop at the budget; a title hit still ranks first.
+	/// A German page's nouns that are English stop words are searchable under
+	/// German, and an English page keeps "MIT", a German stop word.
 	#[test]
-	fn body_terms_skip_function_words_and_keep_to_the_budget() {
-		use crate::{Document, IndexConfig, build_index_with_config, search};
-		let documents = vec![
-			Document {
-				title: "Erste".to_string(),
-				category: "c".to_string(),
-				href: "/erste".to_string(),
-				body: "und der die das 2026 ab Kompass Kompass Kompass Laterne Laterne Mond".to_string(),
-				keywords: None,
-			},
-			Document {
-				title: "Mond".to_string(),
-				category: "c".to_string(),
-				href: "/mond".to_string(),
-				body: "Ein anderer Text.".to_string(),
-				keywords: None,
-			},
-		];
-		let config = IndexConfig {
-			body_term_budget: 2,
-			..IndexConfig::default()
-		};
-		let index = build_index_with_config(documents, &config).unwrap();
-		let hrefs = |query: &str| {
-			search(&index, query, 10)
-				.unwrap()
-				.into_iter()
-				.map(|hit| hit.href)
-				.collect::<Vec<_>>()
-		};
-		assert_eq!(hrefs("Kompass"), ["/erste"], "the most used term is kept");
-		assert_eq!(hrefs("Laterne"), ["/erste"], "the next one too");
-		assert_eq!(
-			hrefs("Mond"),
-			["/mond"],
-			"past the budget, and the title page ranks first"
-		);
-		assert!(hrefs("2026").is_empty(), "numbers are not terms");
-		assert!(
-			hrefs("der").is_empty(),
-			"German function words are not terms"
-		);
-	}
-
-	/// The index stays a function of its input with body terms on.
-	#[test]
-	fn body_terms_build_the_same_index_every_time() {
-		use crate::{Document, build_index};
-		let documents = || -> Vec<Document> {
-			(0..20)
-				.map(|n| Document {
-					title: format!("Seite {n}"),
-					category: "c".to_string(),
-					href: format!("/s-{n}"),
-					body: (0..80)
-						.map(|w| format!("wort{}x{w}", n % 3))
-						.collect::<Vec<_>>()
-						.join(" "),
-					keywords: None,
-				})
-				.collect()
-		};
-		let first = postcard::to_allocvec(&build_index(documents()).unwrap()).unwrap();
-		for _ in 0..5 {
-			assert!(postcard::to_allocvec(&build_index(documents()).unwrap()).unwrap() == first);
+	fn each_language_keeps_its_own_words() {
+		let index = crate::build_index_with_config(
+			vec![page(
+				"/brief",
+				"Post",
+				"Schreiben Sie uns einen Brief. Am See liegt die Last.",
+			)],
+			&german(),
+		)
+		.unwrap();
+		for word in ["Brief", "See", "Last"] {
+			assert_eq!(hrefs(&index, word), ["/brief"], "{word}");
 		}
+		let index = crate::build_index(vec![page(
+			"/license",
+			"Terms",
+			"The code ships under the MIT license.",
+		)])
+		.unwrap();
+		assert_eq!(hrefs(&index, "MIT"), ["/license"]);
+	}
+
+	/// A keyword keeps no punctuation, a contraction still matches its stop
+	/// word, and a compound with a hyphen or a full stop stays whole.
+	#[test]
+	fn clauses_keep_words_whole_and_keywords_clean() {
+		let index = crate::build_index(vec![page(
+			"/notes",
+			"Notes",
+			"It doesn't work. Then node.js runs; \"quoted\" words follow. E-Mail-Beratung helps. \
+			 'Single' quotes are fine.",
+		)])
+		.unwrap();
+		assert!(hrefs(&index, "doesn").is_empty(), "no contraction fragment");
+		assert_eq!(hrefs(&index, "node.js"), ["/notes"]);
+		assert_eq!(hrefs(&index, "quoted"), ["/notes"]);
+		assert_eq!(hrefs(&index, "E-Mail-Beratung"), ["/notes"]);
+		assert_eq!(
+			hrefs(&index, "single"),
+			["/notes"],
+			"no quote before the keyword"
+		);
+	}
+
+	/// Clauses split at sentence and clause punctuation, not inside words.
+	#[test]
+	fn clauses_split_at_boundaries_only() {
+		assert_eq!(
+			crate::clauses("a b, c. 1.5 node.js; d (e) f\ng – h"),
+			["a b", " c", " 1.5 node.js", " d ", "e", " f", "g ", " h"]
+		);
 	}
 }

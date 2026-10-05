@@ -125,12 +125,12 @@ pub struct IndexConfig {
 	/// Maximum two-word keywords to extract from each document body via RAKE.
 	/// Default: 10. Higher values improve recall for multi-word phrases.
 	pub multi_word_budget: usize,
-	/// Maximum terms to take from each document body as written, beside the
-	/// RAKE keywords. RAKE only yields a short keyword where stop words split
-	/// the text, and its stop list is English, so a body in another language
-	/// gives it none. These terms keep every body searchable. Default: 50.
-	/// Zero turns them off.
-	pub body_term_budget: usize,
+	/// Language of the documents, which picks the stop words that split a body
+	/// into keyword candidates and that title words skip: `"de"` for German,
+	/// anything else for English. Default: `"en"`. A stop list of the wrong
+	/// language splits nothing, so a German body under the English list came
+	/// back as one candidate per clause, too long to keep.
+	pub language: String,
 }
 
 #[cfg(any(feature = "cli", test))]
@@ -139,9 +139,47 @@ impl Default for IndexConfig {
 		Self {
 			single_word_budget: 20,
 			multi_word_budget: 10,
-			body_term_budget: 50,
+			language: "en".to_string(),
 		}
 	}
+}
+
+/// The clauses of `text`, the fragments RAKE takes keyword candidates from.
+///
+/// A candidate never spans a sentence or clause boundary: the text is split
+/// at line breaks and at `; ! ? ( ) [ ] { } " “ ” „ « » – — …` everywhere, and
+/// at `. , :` where whitespace or the end follows. A full stop inside
+/// `node.js` or `1.5`, an apostrophe inside `doesn't` and a hyphen inside
+/// `E-Mail` stay part of their word, so a contraction still matches its stop
+/// word and a compound stays whole.
+#[cfg(any(feature = "cli", test))]
+fn clauses(text: &str) -> Vec<&str> {
+	let mut out = Vec::new();
+	let mut start = 0;
+	let mut chars = text.char_indices().peekable();
+	while let Some((index, c)) = chars.next() {
+		let next_is_space = chars.peek().is_none_or(|(_, next)| next.is_whitespace());
+		let boundary =
+			matches!(
+				c,
+				'\n'
+					| ';' | '!'
+					| '?' | '('
+					| ')' | '['
+					| ']' | '{'
+					| '}' | '"'
+					| '“' | '”'
+					| '„' | '«'
+					| '»' | '–'
+					| '—' | '…'
+			) || (matches!(c, '.' | ',' | ':') && next_is_space);
+		if boundary {
+			out.push(&text[start..index]);
+			start = index + c.len_utf8();
+		}
+	}
+	out.push(&text[start..]);
+	out
 }
 
 /// Build a search index from the given documents using default keyword budgets.
@@ -158,40 +196,16 @@ pub fn build_index_with_config(
 ) -> Result<Index, Box<dyn std::error::Error>> {
 	use std::collections::HashSet;
 
-	let stop_words = include_str!("../english.stop")
+	let stop_list = if config.language.to_lowercase().starts_with("de") {
+		include_str!("../german.stop")
+	} else {
+		include_str!("../english.stop")
+	};
+	let stop_words = stop_list
 		.lines()
 		.filter(|line| !line.is_empty() && !line.starts_with('#'))
 		.map(|line| line.to_lowercase())
 		.collect::<HashSet<String>>();
-
-	// The body terms below skip German function words too. RAKE and the title
-	// words keep the English list alone: "mit", "man" or "die" are words an
-	// English page may be searched for.
-	let body_stop_words = include_str!("../german.stop")
-		.lines()
-		.filter(|line| !line.is_empty() && !line.starts_with('#'))
-		.map(str::to_lowercase)
-		.chain(stop_words.iter().cloned())
-		.collect::<HashSet<String>>();
-	let body_terms = |body: &str| -> Vec<String> {
-		body
-			.split(|c: char| !c.is_alphanumeric())
-			.filter(|word| word.chars().count() >= 3 && !word.chars().all(char::is_numeric))
-			.map(str::to_lowercase)
-			.filter(|word| !body_stop_words.contains(word))
-			.collect()
-	};
-	// How many documents use each body term, so a term every page shares
-	// gives way to the page's own.
-	let mut document_frequency: HashMap<String, usize> = HashMap::new();
-	if config.body_term_budget > 0 {
-		for doc in &documents {
-			let distinct: HashSet<String> = body_terms(&doc.body).into_iter().collect();
-			for term in distinct {
-				*document_frequency.entry(term).or_default() += 1;
-			}
-		}
-	}
 
 	let sw = rake::StopWords::from(stop_words);
 	let rake = rake::Rake::new(sw.clone());
@@ -243,7 +257,7 @@ pub fn build_index_with_config(
 			}
 		}
 
-		let mut body_keywords = rake.run_fragments(vec![doc.body.as_str()]);
+		let mut body_keywords = rake.run_fragments(clauses(&doc.body));
 		// RAKE collects its candidates in a hash map and sorts by score alone,
 		// so keywords of equal score come out in hash order, and the budget
 		// below would keep a different subset on every run. Ties are broken by
@@ -263,7 +277,15 @@ pub fn build_index_with_config(
 		let mut double_word_budget = config.multi_word_budget;
 
 		for k in &body_keywords {
-			let keyword = k.keyword.to_lowercase();
+			// RAKE splits words at whitespace only, so a word keeps the quote
+			// or punctuation next to it.
+			let keyword = k
+				.keyword
+				.trim_matches(|c: char| !c.is_alphanumeric())
+				.to_lowercase();
+			if keyword.is_empty() {
+				continue;
+			}
 
 			// continue if keyword is already in title keywords
 			if keyword_set.contains(&keyword) {
@@ -285,39 +307,6 @@ pub fn build_index_with_config(
 
 			if single_word_budget == 0 && double_word_budget == 0 {
 				break;
-			}
-		}
-
-		// Terms straight from the body, beside RAKE's. RAKE splits text into
-		// candidates at stop words, so a German body came back as one candidate
-		// per sentence, too long to keep, and no word of it was searchable.
-		// Each document keeps the terms it uses most, weighted down by how many
-		// documents use them; ties go to the term met first, then to the term
-		// itself, so the index stays a function of its input. A term scores its
-		// count, capped below anything a title word scores.
-		if config.body_term_budget > 0 {
-			let mut counts: HashMap<String, (usize, usize)> = HashMap::new();
-			for (position, term) in body_terms(&doc.body).into_iter().enumerate() {
-				counts.entry(term).or_insert((0, position)).0 += 1;
-			}
-			let total = documents.len() as f64;
-			let weight = |term: &str, count: usize| {
-				count as f64 * (1.0 + total / document_frequency[term] as f64).ln()
-			};
-			let mut ranked: Vec<(String, usize, usize)> = counts
-				.into_iter()
-				.filter(|(term, _)| !keyword_set.contains(term))
-				.map(|(term, (count, first))| (term, count, first))
-				.collect();
-			ranked.sort_by(|a, b| {
-				weight(&b.0, b.1)
-					.total_cmp(&weight(&a.0, a.1))
-					.then_with(|| a.2.cmp(&b.2))
-					.then_with(|| a.0.cmp(&b.0))
-			});
-			for (term, count, _) in ranked.into_iter().take(config.body_term_budget) {
-				keywords.push((term.clone(), count.min(20) as f64));
-				keyword_set.insert(term);
 			}
 		}
 
