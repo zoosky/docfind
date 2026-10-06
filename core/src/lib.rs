@@ -89,6 +89,11 @@ pub struct Document {
 	pub href: String,
 	pub body: String,
 	pub keywords: Option<Vec<String>>,
+	/// Language of this document, as in `IndexConfig::language`, for a site
+	/// that mixes languages. `None` or an empty string uses the index's
+	/// language.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub language: Option<String>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -125,6 +130,13 @@ pub struct IndexConfig {
 	/// Maximum two-word keywords to extract from each document body via RAKE.
 	/// Default: 10. Higher values improve recall for multi-word phrases.
 	pub multi_word_budget: usize,
+	/// Language of the documents, which picks the stop words that split a body
+	/// into keyword candidates and that title words skip: a tag whose primary
+	/// subtag is `de` (`de`, `de-CH`) for German, anything else for English.
+	/// A document's own [`Document::language`] wins. Default: `"en"`. A stop
+	/// list of the wrong language splits nothing, so a German body under the
+	/// English list came back as one candidate per clause, too long to keep.
+	pub language: String,
 }
 
 #[cfg(any(feature = "cli", test))]
@@ -133,8 +145,141 @@ impl Default for IndexConfig {
 		Self {
 			single_word_budget: 20,
 			multi_word_budget: 10,
+			language: "en".to_string(),
 		}
 	}
+}
+
+/// Characters that end a clause at the edge of a token. Inside a token they
+/// are part of the word, as the query side keeps them: `CI/CD`, `user(s)`
+/// and a URL stay whole.
+#[cfg(any(feature = "cli", test))]
+const CLAUSE_MARKS: &[char] = &[
+	';', '!', '?', '(', ')', '[', ']', '{', '}', '"', '“', '”', '„', '‘', '‚', '«', '»', '‹', '›',
+	'–', '—', '…', '|', '•',
+];
+
+/// Characters stripped from the ends of a word: quotes and the markup a
+/// stripped markdown body keeps. Not `+` or `#`, so `C++` and `C#` stay whole.
+#[cfg(any(feature = "cli", test))]
+const WORD_EDGES: &[char] = &['\'', '’', '`', '*', '_', '~', '>'];
+
+/// Whether a token's last character is a closing bracket the token opened,
+/// so it belongs to the word: `user(s)`, `array[0]`.
+#[cfg(any(feature = "cli", test))]
+fn closes_inside(token: &str, close: char) -> bool {
+	let open = match close {
+		')' => '(',
+		']' => '[',
+		'}' => '{',
+		_ => return false,
+	};
+	token[..token.len() - close.len_utf8()].contains(open)
+}
+
+/// The clauses of `text`, the fragments RAKE takes keyword candidates from,
+/// as their words joined by single spaces.
+///
+/// A candidate never spans a clause: one ends at a blank line or a paragraph
+/// separator, at a [`CLAUSE_MARKS`] character at the edge of a token, after
+/// a word that ends in `.`, `,` or `:`, and at a token with no letter or
+/// digit, such as a list marker, a heading's `#` or a table's `|`. A single
+/// line break is a soft wrap, as in markdown, so where an author wraps a
+/// paragraph does not change the index. A single letter with a full stop,
+/// as in `z. B.`, ends a clause and is left out, so it never becomes a
+/// one-letter keyword; `Dr.`, `U.K.` and `.js` stay words. A full stop
+/// inside `node.js` or `1.5`, an apostrophe inside `doesn't` and a hyphen
+/// inside `E-Mail` stay part of their word, and a typographic apostrophe is
+/// read as `'`, so a contraction still matches its stop word.
+#[cfg(any(feature = "cli", test))]
+fn clauses(text: &str) -> Vec<String> {
+	let mut out = Vec::new();
+	let mut clause: Vec<String> = Vec::new();
+	let mut flush = |clause: &mut Vec<String>| {
+		if !clause.is_empty() {
+			out.push(clause.join(" "));
+			clause.clear();
+		}
+	};
+	let text = text
+		.replace("\r\n", "\n")
+		.replace('\r', "\n")
+		.replace('\u{2029}', "\n\n");
+	for line in text.split('\n') {
+		if line.trim().is_empty() {
+			flush(&mut clause);
+			continue;
+		}
+		for token in line.split_whitespace() {
+			let mut core = token;
+			if let Some(stripped) = core.strip_prefix(CLAUSE_MARKS) {
+				flush(&mut clause);
+				core = stripped.trim_start_matches(CLAUSE_MARKS);
+			}
+			// Trailing marks and sentence punctuation, in any order: `U.K.).`
+			let mut ends_clause = false;
+			let mut full_stop = false;
+			while let Some(last) = core.chars().last() {
+				let mark = CLAUSE_MARKS.contains(&last) && !closes_inside(core, last);
+				if !mark && !matches!(last, '.' | ',' | ':') {
+					break;
+				}
+				ends_clause = true;
+				full_stop |= last == '.';
+				core = &core[..core.len() - last.len_utf8()];
+			}
+			let word = core
+				.trim_matches(WORD_EDGES)
+				.trim_end_matches('-')
+				.replace('’', "'");
+			let letters = word.chars().filter(|c| c.is_alphanumeric()).count();
+			let abbreviation = letters == 1 && full_stop && word.chars().all(char::is_alphabetic);
+			if letters == 0 || abbreviation {
+				flush(&mut clause);
+				continue;
+			}
+			clause.push(word);
+			if ends_clause {
+				flush(&mut clause);
+			}
+		}
+	}
+	flush(&mut clause);
+	out
+}
+
+/// Whether a language tag selects the German stop list.
+#[cfg(any(feature = "cli", test))]
+fn is_german(language: &str) -> bool {
+	language
+		.split(['-', '_'])
+		.next()
+		.is_some_and(|primary| primary.eq_ignore_ascii_case("de"))
+}
+
+/// Where each RAKE candidate of `clauses` first appears, in reading order:
+/// RAKE's own split of a clause into phrases at stop words, numbered.
+#[cfg(any(feature = "cli", test))]
+fn phrase_order(
+	clauses: &[String],
+	stop_words: &std::collections::HashSet<String>,
+) -> HashMap<String, usize> {
+	let mut order = HashMap::new();
+	for clause in clauses {
+		let mut phrase: Vec<&str> = Vec::new();
+		for word in clause.split_whitespace().chain(std::iter::once("")) {
+			if word.is_empty() || stop_words.contains(&word.to_lowercase()) {
+				if !phrase.is_empty() {
+					let next = order.len();
+					order.entry(phrase.join(" ")).or_insert(next);
+					phrase.clear();
+				}
+			} else {
+				phrase.push(word);
+			}
+		}
+	}
+	order
 }
 
 /// Build a search index from the given documents using default keyword budgets.
@@ -151,14 +296,30 @@ pub fn build_index_with_config(
 ) -> Result<Index, Box<dyn std::error::Error>> {
 	use std::collections::HashSet;
 
-	let stop_words = include_str!("../english.stop")
-		.lines()
-		.filter(|line| !line.is_empty() && !line.starts_with('#'))
-		.map(|line| line.to_lowercase())
-		.collect::<HashSet<String>>();
-
-	let sw = rake::StopWords::from(stop_words);
-	let rake = rake::Rake::new(sw.clone());
+	let stop_list = |list: &str| {
+		list
+			.lines()
+			.filter(|line| !line.is_empty() && !line.starts_with('#'))
+			.map(|line| line.to_lowercase())
+			.collect::<HashSet<String>>()
+	};
+	let language_of = |doc: &Document| -> bool {
+		is_german(
+			doc
+				.language
+				.as_deref()
+				.filter(|language| !language.is_empty())
+				.unwrap_or(&config.language),
+		)
+	};
+	let english = stop_list(include_str!("../english.stop"));
+	let english_rake = rake::Rake::new(rake::StopWords::from(english.clone()));
+	// Only an index with a German document pays for the German list.
+	let german = documents.iter().any(|doc| language_of(doc)).then(|| {
+		let words = stop_list(include_str!("../german.stop"));
+		let rake = rake::Rake::new(rake::StopWords::from(words.clone()));
+		(words, rake)
+	});
 
 	let mut strings: Vec<&str> = Vec::new();
 	let mut keywords_to_documents: HashMap<String, Vec<(&Document, f64)>> = HashMap::new();
@@ -174,30 +335,50 @@ pub fn build_index_with_config(
 		let mut keyword_set: HashSet<String> = HashSet::new();
 		let mut keywords: Vec<(String, f64)> = Vec::new();
 
-		// Add explicit keywords from document metadata
+		let (sw, rake) = match &german {
+			Some((words, rake)) if language_of(doc) => (words, rake),
+			_ => (&english, &english_rake),
+		};
+
+		// Explicit keywords skip the English stop words only, as before
+		// languages existed: "MIT" or "Über" on a German page stays.
 		if let Some(kw) = &doc.keywords {
 			for k in kw {
 				let keyword = k
 					.trim_matches(|c: char| !c.is_alphanumeric())
 					.to_lowercase();
-				if !keyword.is_empty() && !sw.contains(&keyword.clone()) && !keyword_set.contains(&keyword)
-				{
+				if !keyword.is_empty() && !english.contains(&keyword) && !keyword_set.contains(&keyword) {
 					keywords.push((keyword.clone(), 100.0));
 					keyword_set.insert(keyword.clone());
 				}
 			}
 		}
 
-		// add keywords from title
-		let title_keywords = doc
+		// add keywords from title; a title made only of stop words, such as
+		// "Über uns", keeps those of three letters or more, or its page could
+		// not be found by name
+		let title_words = doc
 			.title
 			.split_whitespace()
 			.map(|w| {
 				w.trim_matches(|c: char| !c.is_alphanumeric())
 					.to_lowercase()
 			})
-			.filter(|w| !w.is_empty() && !sw.contains(&w.clone()))
+			.filter(|w| !w.is_empty())
 			.collect::<HashSet<String>>(); // deduplicate
+		let content_words = title_words
+			.iter()
+			.filter(|w| !sw.contains(*w))
+			.cloned()
+			.collect::<HashSet<String>>();
+		let title_keywords = if content_words.is_empty() {
+			title_words
+				.into_iter()
+				.filter(|w| w.chars().count() >= 3)
+				.collect()
+		} else {
+			content_words
+		};
 		let mut title_keywords: Vec<String> = title_keywords.into_iter().collect();
 		title_keywords.sort();
 		for tk in title_keywords {
@@ -207,16 +388,20 @@ pub fn build_index_with_config(
 			}
 		}
 
-		let mut body_keywords = rake.run_fragments(vec![doc.body.as_str()]);
+		let fragments = clauses(&doc.body);
+		let order = phrase_order(&fragments, sw);
+		let mut body_keywords = rake.run_fragments(fragments.iter().map(String::as_str));
 		// RAKE collects its candidates in a hash map and sorts by score alone,
 		// so keywords of equal score come out in hash order, and the budget
 		// below would keep a different subset on every run. Ties are broken by
 		// where the keyword first appears in the body, so the subset the budget
 		// keeps is the one a reader meets first, the same on every run and on
 		// every page, rather than the alphabetically earliest words sitewide;
-		// the keyword itself settles the rest. total_cmp keeps the order total
-		// even for a score that is not a number.
-		let first_at = |k: &rake::KeywordScore| doc.body.find(k.keyword.as_str()).unwrap_or(usize::MAX);
+		// the keyword itself settles the rest. The positions come from the
+		// clause scan, once per candidate, so a long page sorts in
+		// O(k log k). total_cmp keeps the order total even for a score that
+		// is not a number.
+		let first_at = |k: &rake::KeywordScore| order.get(&k.keyword).copied().unwrap_or(usize::MAX);
 		body_keywords.sort_by(|a, b| {
 			b.score
 				.total_cmp(&a.score)
@@ -229,12 +414,17 @@ pub fn build_index_with_config(
 		for k in &body_keywords {
 			let keyword = k.keyword.to_lowercase();
 
+			// A lone character matches every short query within one edit.
+			if keyword.chars().count() < 2 {
+				continue;
+			}
+
 			// continue if keyword is already in title keywords
 			if keyword_set.contains(&keyword) {
 				continue;
 			}
 
-			let whitespace_count = k.keyword.matches(' ').count();
+			let whitespace_count = keyword.matches(' ').count();
 
 			if whitespace_count == 0 && single_word_budget > 0 {
 				single_word_budget -= 1;
@@ -380,6 +570,7 @@ pub fn search(
 			href,
 			body,
 			keywords: None,
+			language: None,
 		};
 
 		result.push(document);

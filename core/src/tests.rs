@@ -94,6 +94,7 @@ mod tests {
 			href: "/test".to_string(),
 			body: "This is a test document body".to_string(),
 			keywords: Some(vec!["test".to_string(), "document".to_string()]),
+			language: None,
 		};
 
 		assert_eq!(doc.title, "Test Document");
@@ -115,6 +116,7 @@ mod tests {
 			href: "/link".to_string(),
 			body: "Body text".to_string(),
 			keywords: Some(vec!["test".to_string(), "example".to_string()]),
+			language: None,
 		};
 
 		let serialized = serde_json::to_string(&doc).unwrap();
@@ -142,6 +144,7 @@ mod tests {
 				href: "/docs/rust".to_string(),
 				body: "Learn Rust programming language".to_string(),
 				keywords: Some(vec!["rust".to_string(), "programming".to_string()]),
+				language: None,
 			},
 			Document {
 				title: "Python Guide".to_string(),
@@ -149,6 +152,7 @@ mod tests {
 				href: "/docs/python".to_string(),
 				body: "Python is a versatile programming language".to_string(),
 				keywords: Some(vec!["python".to_string(), "guide".to_string()]),
+				language: None,
 			},
 		];
 
@@ -179,6 +183,7 @@ mod tests {
 			href: "/single".to_string(),
 			body: "This is the only document".to_string(),
 			keywords: Some(vec!["single".to_string(), "document".to_string()]),
+			language: None,
 		}];
 
 		let index = build_index(documents);
@@ -198,6 +203,7 @@ mod tests {
 				href: "/guide1".to_string(),
 				body: "First guide".to_string(),
 				keywords: Some(vec!["getting".to_string(), "started".to_string()]),
+				language: None,
 			},
 			Document {
 				title: "Getting Started".to_string(),
@@ -205,6 +211,7 @@ mod tests {
 				href: "/tutorial1".to_string(),
 				body: "First tutorial".to_string(),
 				keywords: Some(vec!["getting".to_string(), "started".to_string()]),
+				language: None,
 			},
 		];
 
@@ -226,6 +233,7 @@ mod tests {
 			href: "/test".to_string(),
 			body: "This is a test document".to_string(),
 			keywords: Some(vec!["test".to_string(), "document".to_string()]),
+			language: None,
 		}];
 
 		let index = build_index(documents).unwrap();
@@ -255,6 +263,7 @@ mod tests {
 				href: "/doc1".to_string(),
 				body: "Content for document one".to_string(),
 				keywords: Some(vec!["document".to_string(), "one".to_string()]),
+				language: None,
 			},
 			Document {
 				title: "Document Two".to_string(),
@@ -262,6 +271,7 @@ mod tests {
 				href: "/doc2".to_string(),
 				body: "Content for document two".to_string(),
 				keywords: Some(vec!["document".to_string(), "two".to_string()]),
+				language: None,
 			},
 		];
 
@@ -296,6 +306,7 @@ mod tests {
 				href: "/docs/rust".to_string(),
 				body: "Learn Rust programming language".to_string(),
 				keywords: Some(vec!["rust".to_string(), "programming".to_string()]),
+				language: None,
 			},
 			Document {
 				title: "Python Guide".to_string(),
@@ -303,6 +314,7 @@ mod tests {
 				href: "/docs/python".to_string(),
 				body: "Python is a versatile programming language".to_string(),
 				keywords: Some(vec!["python".to_string(), "guide".to_string()]),
+				language: None,
 			},
 		];
 
@@ -323,6 +335,7 @@ mod tests {
 			href: "/tutorials/javascript".to_string(),
 			body: "Learn JavaScript programming".to_string(),
 			keywords: Some(vec!["javascript".to_string(), "tutorial".to_string()]),
+			language: None,
 		}];
 
 		let index = build_index(documents).unwrap();
@@ -350,6 +363,7 @@ mod tests {
 			href: "/docs/rust".to_string(),
 			body: "Learn Rust programming language".to_string(),
 			keywords: Some(vec!["rust".to_string(), "programming".to_string()]),
+			language: None,
 		}];
 
 		let index = build_index(documents).unwrap();
@@ -367,6 +381,7 @@ mod tests {
 			href: "/test".to_string(),
 			body: "Test content".to_string(),
 			keywords: Some(vec!["test".to_string(), "document".to_string()]),
+			language: None,
 		}];
 
 		let index = build_index(documents).unwrap();
@@ -395,6 +410,7 @@ mod tests {
 					"code".to_string(),
 					"extensions".to_string(),
 				]),
+				language: None,
 			},
 			Document {
 				title: "VS Code Settings".to_string(),
@@ -406,6 +422,7 @@ mod tests {
 					"code".to_string(),
 					"settings".to_string(),
 				]),
+				language: None,
 			},
 			Document {
 				title: "Python Guide".to_string(),
@@ -413,6 +430,7 @@ mod tests {
 				href: "/docs/python".to_string(),
 				body: "Python is a versatile programming language".to_string(),
 				keywords: Some(vec!["python".to_string(), "guide".to_string()]),
+				language: None,
 			},
 		];
 
@@ -438,6 +456,7 @@ mod tests {
 				"vs".to_string(),
 				"code".to_string(),
 			]),
+			language: None,
 		}];
 
 		let index = build_index(documents).unwrap();
@@ -461,6 +480,7 @@ mod tests {
 				href: "/tutorials/python".to_string(),
 				body: "Learn programming with this tutorial".to_string(),
 				keywords: Some(vec!["python".to_string(), "tutorial".to_string()]),
+				language: None,
 			},
 			Document {
 				title: "Getting Started".to_string(),
@@ -468,6 +488,7 @@ mod tests {
 				href: "/docs/start".to_string(),
 				body: "This guide covers Python basics and advanced features".to_string(),
 				keywords: Some(vec!["getting".to_string(), "started".to_string()]),
+				language: None,
 			},
 		];
 
@@ -493,6 +514,7 @@ mod tests {
 					"code".to_string(),
 					"debugging".to_string(),
 				]),
+				language: None,
 			},
 			Document {
 				title: "VS Code Overview".to_string(),
@@ -504,6 +526,7 @@ mod tests {
 					"code".to_string(),
 					"overview".to_string(),
 				]),
+				language: None,
 			},
 			Document {
 				title: "Debugging Guide".to_string(),
@@ -511,6 +534,7 @@ mod tests {
 				href: "/tutorials/debug".to_string(),
 				body: "General debugging techniques".to_string(),
 				keywords: Some(vec!["debugging".to_string(), "guide".to_string()]),
+				language: None,
 			},
 		];
 
@@ -532,6 +556,7 @@ mod tests {
 				href: "/guide1".to_string(),
 				body: "First guide about programming".to_string(),
 				keywords: Some(vec!["guide".to_string(), "one".to_string()]),
+				language: None,
 			},
 			Document {
 				title: "Guide Two".to_string(),
@@ -539,6 +564,7 @@ mod tests {
 				href: "/guide2".to_string(),
 				body: "Second guide about programming".to_string(),
 				keywords: Some(vec!["guide".to_string(), "two".to_string()]),
+				language: None,
 			},
 			Document {
 				title: "Guide Three".to_string(),
@@ -546,6 +572,7 @@ mod tests {
 				href: "/guide3".to_string(),
 				body: "Third guide about programming".to_string(),
 				keywords: Some(vec!["guide".to_string(), "three".to_string()]),
+				language: None,
 			},
 			Document {
 				title: "Guide Four".to_string(),
@@ -553,6 +580,7 @@ mod tests {
 				href: "/guide4".to_string(),
 				body: "Fourth guide about programming".to_string(),
 				keywords: Some(vec!["guide".to_string(), "four".to_string()]),
+				language: None,
 			},
 		];
 
@@ -581,6 +609,7 @@ mod tests {
 				href: "/docs/typescript".to_string(),
 				body: "Configure TypeScript with tsconfig.json for your project".to_string(),
 				keywords: Some(vec!["typescript".to_string(), "configuration".to_string()]),
+				language: None,
 			},
 			Document {
 				title: "JavaScript Basics".to_string(),
@@ -588,6 +617,7 @@ mod tests {
 				href: "/tutorials/javascript".to_string(),
 				body: "Learn JavaScript fundamentals".to_string(),
 				keywords: Some(vec!["javascript".to_string(), "basics".to_string()]),
+				language: None,
 			},
 			Document {
 				title: "Language Support".to_string(),
@@ -595,6 +625,7 @@ mod tests {
 				href: "/docs/languages".to_string(),
 				body: "VS Code supports TypeScript, JavaScript, and many other languages".to_string(),
 				keywords: Some(vec!["language".to_string(), "support".to_string()]),
+				language: None,
 			},
 		];
 
@@ -615,6 +646,7 @@ mod tests {
 				href: "/docs/cpp".to_string(),
 				body: "Learn C++ programming language".to_string(),
 				keywords: Some(vec!["c++".to_string(), "programming".to_string()]),
+				language: None,
 			},
 			Document {
 				title: "C# Guide".to_string(),
@@ -622,6 +654,7 @@ mod tests {
 				href: "/docs/csharp".to_string(),
 				body: "C# development with .NET".to_string(),
 				keywords: Some(vec!["c#".to_string(), "guide".to_string()]),
+				language: None,
 			},
 		];
 
@@ -648,6 +681,7 @@ mod tests {
 					"development".to_string(),
 					"setup".to_string(),
 				]),
+				language: None,
 			},
 			Document {
 				title: "Development Environment".to_string(),
@@ -655,6 +689,7 @@ mod tests {
 				href: "/docs/environment".to_string(),
 				body: "Configure your local development environment".to_string(),
 				keywords: Some(vec!["development".to_string(), "environment".to_string()]),
+				language: None,
 			},
 			Document {
 				title: "Remote Connections".to_string(),
@@ -662,6 +697,7 @@ mod tests {
 				href: "/docs/remote".to_string(),
 				body: "Connect to remote servers and containers".to_string(),
 				keywords: Some(vec!["remote".to_string(), "connections".to_string()]),
+				language: None,
 			},
 		];
 
@@ -687,6 +723,7 @@ mod tests {
 				"vs".to_string(),
 				"code".to_string(),
 			]),
+			language: None,
 		}];
 
 		let index = build_index(documents).unwrap();
@@ -710,6 +747,7 @@ mod tests {
 					"18".to_string(),
 					"features".to_string(),
 				]),
+				language: None,
 			},
 			Document {
 				title: "Node.js 16 Support".to_string(),
@@ -721,6 +759,7 @@ mod tests {
 					"16".to_string(),
 					"support".to_string(),
 				]),
+				language: None,
 			},
 		];
 
@@ -747,6 +786,7 @@ mod tests {
 					"ssh".to_string(),
 					"extension".to_string(),
 				]),
+				language: None,
 			},
 			Document {
 				title: "SSH Key Setup".to_string(),
@@ -758,6 +798,7 @@ mod tests {
 					"key".to_string(),
 					"setup".to_string(),
 				]),
+				language: None,
 			},
 		];
 
@@ -783,6 +824,7 @@ mod tests {
 				href: format!("/doc{}", i).to_string(),
 				body: format!("This is document number {} with some content", i).to_string(),
 				keywords: Some(vec![format!("document{}", i).to_string()]),
+				language: None,
 			});
 		}
 
@@ -793,6 +835,7 @@ mod tests {
 			href: "/special".to_string(),
 			body: "This document should be easy to find".to_string(),
 			keywords: Some(vec!["special".to_string(), "target".to_string()]),
+			language: None,
 		});
 
 		let index = build_index(documents).unwrap();
@@ -812,6 +855,7 @@ mod tests {
 				href: "/empty1".to_string(),
 				body: "This document has no title".to_string(),
 				keywords: Some(vec!["empty".to_string()]),
+				language: None,
 			},
 			Document {
 				title: "Empty Body".to_string(),
@@ -819,6 +863,7 @@ mod tests {
 				href: "/empty2".to_string(),
 				body: "".to_string(),
 				keywords: Some(vec!["empty".to_string(), "body".to_string()]),
+				language: None,
 			},
 		];
 
@@ -839,6 +884,7 @@ mod tests {
 			href: "/whitespace".to_string(),
 			body: "Multiple   spaces   between   words".to_string(),
 			keywords: Some(vec!["whitespace".to_string(), "test".to_string()]),
+			language: None,
 		}];
 
 		let index = build_index(documents).unwrap();
@@ -910,6 +956,7 @@ mod tests {
 						href: format!("/doc-{n}"),
 						body,
 						keywords: None,
+						language: None,
 					}
 				})
 				.collect()
@@ -917,12 +964,14 @@ mod tests {
 		let config = IndexConfig {
 			single_word_budget: 3,
 			multi_word_budget: 2,
+			..IndexConfig::default()
 		};
 		// The control: without the budget the same corpus indexes differently,
 		// which proves the budget cut, the path the ties matter on, ran.
 		let unbudgeted = IndexConfig {
 			single_word_budget: 40,
 			multi_word_budget: 2,
+			..IndexConfig::default()
 		};
 		let whole =
 			postcard::to_allocvec(&build_index_with_config(documents(), &unbudgeted).unwrap()).unwrap();
@@ -956,10 +1005,12 @@ mod tests {
 			href: "/fruit".to_string(),
 			body: "zebra and yak and apple and banana".to_string(),
 			keywords: None,
+			language: None,
 		}];
 		let config = IndexConfig {
 			single_word_budget: 2,
 			multi_word_budget: 0,
+			..IndexConfig::default()
 		};
 		let index = build_index_with_config(documents, &config).unwrap();
 		assert_eq!(
@@ -977,5 +1028,402 @@ mod tests {
 			0,
 			"past the budget, cut"
 		);
+	}
+
+	fn german() -> crate::IndexConfig {
+		crate::IndexConfig {
+			language: "de".to_string(),
+			..crate::IndexConfig::default()
+		}
+	}
+
+	fn page(href: &str, title: &str, body: &str) -> crate::Document {
+		crate::Document {
+			title: title.to_string(),
+			category: "c".to_string(),
+			href: href.to_string(),
+			body: body.to_string(),
+			keywords: None,
+			language: None,
+		}
+	}
+
+	fn hrefs(index: &crate::Index, query: &str) -> Vec<String> {
+		crate::search(index, query, 20)
+			.unwrap()
+			.into_iter()
+			.map(|hit| hit.href)
+			.collect()
+	}
+
+	/// Ten short German pages: a word that appears only in a body is found.
+	/// Under the English stop list a German body came back as one candidate
+	/// per clause, too long to keep, so only title words matched.
+	#[test]
+	fn german_body_words_are_searchable() {
+		let filler = "Wir begleiten Menschen auf dem Weg zu mehr innerer Ruhe und \
+		              Klarheit im Alltag, mit Zeit für Fragen und eigene Antworten.";
+		let documents = || -> Vec<crate::Document> {
+			(0..10)
+				.map(|n| {
+					let own = match n {
+						0 => " Wenn der Stress steigt, melden sich die Alarme des Körpers.",
+						1 => " Achtsamkeit hilft, den Wendepunkt früh zu erkennen.",
+						2 => " Im Coaching lösen wir Blockaden Schritt für Schritt.",
+						_ => "",
+					};
+					page(
+						&format!("/seite-{n}"),
+						&format!("Seite {n} Verstehen"),
+						&format!("{filler}{own}"),
+					)
+				})
+				.collect()
+		};
+		let index = crate::build_index_with_config(documents(), &german()).unwrap();
+		for (query, href) in [
+			("Stress", "/seite-0"),
+			("Alarme", "/seite-0"),
+			("Achtsamkeit", "/seite-1"),
+			("Wendepunkt", "/seite-1"),
+			("Coaching", "/seite-2"),
+			("Blockaden", "/seite-2"),
+		] {
+			assert_eq!(hrefs(&index, query), [href], "{query}");
+		}
+		assert_eq!(
+			hrefs(&index, "Verstehen").len(),
+			10,
+			"title words still match"
+		);
+
+		// The control: under the English list "Wenn der Stress steigt" has no
+		// stop word to split at, so the language is what found "Stress".
+		let english = crate::build_index(documents()).unwrap();
+		assert!(hrefs(&english, "Stress").is_empty());
+	}
+
+	/// A German page's nouns that are English stop words are searchable under
+	/// German, and an English page keeps "MIT", a German stop word.
+	#[test]
+	fn each_language_keeps_its_own_words() {
+		let index = crate::build_index_with_config(
+			vec![page(
+				"/brief",
+				"Post",
+				"Schreiben Sie uns einen Brief. Am See liegt die Last.",
+			)],
+			&german(),
+		)
+		.unwrap();
+		for word in ["Brief", "See", "Last"] {
+			assert_eq!(hrefs(&index, word), ["/brief"], "{word}");
+		}
+		let index = crate::build_index(vec![page(
+			"/license",
+			"Terms",
+			"The code ships under the MIT license.",
+		)])
+		.unwrap();
+		assert_eq!(hrefs(&index, "MIT"), ["/license"]);
+	}
+
+	/// A keyword keeps no punctuation, a contraction still matches its stop
+	/// word, and a compound with a hyphen or a full stop stays whole.
+	#[test]
+	fn clauses_keep_words_whole_and_keywords_clean() {
+		let index = crate::build_index(vec![page(
+			"/notes",
+			"Notes",
+			"It doesn't work. Then node.js runs; \"quoted\" words follow. E-Mail-Beratung helps. \
+			 'Single' quotes are fine.",
+		)])
+		.unwrap();
+		assert!(hrefs(&index, "doesn").is_empty(), "no contraction fragment");
+		assert_eq!(hrefs(&index, "node.js"), ["/notes"]);
+		assert_eq!(hrefs(&index, "quoted"), ["/notes"]);
+		assert_eq!(hrefs(&index, "E-Mail-Beratung"), ["/notes"]);
+		assert_eq!(
+			hrefs(&index, "single"),
+			["/notes"],
+			"no quote before the keyword"
+		);
+	}
+
+	/// Clauses split at sentence and clause punctuation and at tokens with no
+	/// letter, never inside a word; one- and two-letter abbreviations go.
+	#[test]
+	fn clauses_split_at_boundaries_only() {
+		let cases: [(&str, &[&str]); 6] = [
+			(
+				"a b, word. 1.5 node.js; d (e) f\ng – h",
+				&["a b", "word", "1.5 node.js", "d", "e", "f g", "h"],
+			),
+			(
+				"Angebote\n- Achtsamkeit üben\n- Coaching\n## Stress im Alltag\n| Spalte | Wert |",
+				&[
+					"Angebote",
+					"Achtsamkeit üben",
+					"Coaching",
+					"Stress im Alltag",
+					"Spalte",
+					"Wert",
+				],
+			),
+			(
+				"Wir nutzen z. B. Atemübungen, d. h. ruhige Momente. Dr. Müller hilft.",
+				&[
+					"Wir nutzen",
+					"Atemübungen",
+					"ruhige Momente",
+					"Dr",
+					"Müller hilft",
+				],
+			),
+			(
+				"It doesn’t work. ‹und› dann ‚oder‘ eben. 'Single' C++ and C#.",
+				&[
+					"It doesn't work",
+					"und",
+					"dann",
+					"oder",
+					"eben",
+					"Single C++ and C#",
+				],
+			),
+			(
+				"Use tools, e.g., hammers. Also i.e.: nails. Kinder- und Jugendhilfe",
+				&[
+					"Use tools",
+					"e.g",
+					"hammers",
+					"Also i.e",
+					"nails",
+					"Kinder und Jugendhilfe",
+				],
+			),
+			(
+				"one\r\ntwo\r\n\r\nthree und/oder vier\u{2029}fünf. CI/CD for user(s) (see U.K.).",
+				&[
+					"one two",
+					"three und/oder vier",
+					"fünf",
+					"CI/CD for user(s)",
+					"see U.K",
+				],
+			),
+		];
+		for (text, expected) in cases {
+			assert_eq!(crate::clauses(text), expected, "{text}");
+		}
+	}
+
+	/// A list item, a heading and a table cell are searchable on a German page,
+	/// with no two-word budget at all.
+	#[test]
+	fn markdown_leftovers_do_not_hide_words() {
+		let config = crate::IndexConfig {
+			multi_word_budget: 0,
+			..german()
+		};
+		let index = crate::build_index_with_config(
+			vec![page(
+				"/angebot",
+				"Angebot",
+				"Angebote\n- Achtsamkeit\n- Coaching\n## Stress\n| Spalte | Wert |",
+			)],
+			&config,
+		)
+		.unwrap();
+		for word in ["Achtsamkeit", "Coaching", "Stress", "Spalte", "Wert"] {
+			assert_eq!(hrefs(&index, word), ["/angebot"], "{word}");
+		}
+	}
+
+	/// A document's own language wins over the index's, so one index serves
+	/// a site in two languages.
+	#[test]
+	fn each_document_can_name_its_language() {
+		let mut german_page = page(
+			"/de",
+			"Seite",
+			"Wenn der Stress steigt, melden sich Alarme.",
+		);
+		german_page.language = Some("de-CH".to_string());
+		let index = crate::build_index(vec![
+			german_page,
+			page("/en", "Page", "The code ships under the MIT license."),
+		])
+		.unwrap();
+		assert_eq!(hrefs(&index, "Stress"), ["/de"]);
+		assert_eq!(hrefs(&index, "MIT"), ["/en"]);
+	}
+
+	/// An author's keywords pass no stop list; a stop word that only a quote
+	/// or a full stop hid is still a stop word; a lone letter is no keyword.
+	#[test]
+	fn keywords_are_clean() {
+		let mut tagged = page("/tagged", "Lizenz", "Der Code steht frei.");
+		tagged.keywords = Some(vec!["MIT".to_string(), "Über".to_string()]);
+		let index = crate::build_index_with_config(
+			vec![
+				tagged,
+				page("/quote", "Zitat", "Er sagt: „Ich weiß es nicht.“ Plan B."),
+			],
+			&german(),
+		)
+		.unwrap();
+		assert_eq!(hrefs(&index, "MIT"), ["/tagged"]);
+		assert_eq!(hrefs(&index, "Über"), ["/tagged"]);
+		assert!(
+			hrefs(&index, "nicht").is_empty(),
+			"a stop word behind a quote"
+		);
+		assert!(hrefs(&index, "b").is_empty(), "no one-letter keyword");
+	}
+
+	/// Regressions the review of the second version found against main: a
+	/// sentence-final short word, `C#` and `C++` in a body, a title made of
+	/// stop words, an empty document language, and one-letter author keywords.
+	#[test]
+	fn short_words_and_function_word_titles_stay_findable() {
+		let mut tagged = page("/vs", "Editor", "Ein Werkzeug.");
+		tagged.keywords = Some(vec!["vs".to_string(), "Über".to_string()]);
+		let english = |href: &str, title: &str, body: &str| crate::Document {
+			language: Some("en".to_string()),
+			..page(href, title, body)
+		};
+		let mut unset = page(
+			"/unset",
+			"Leer",
+			"Wenn der Stress steigt, melden sich Alarme.",
+		);
+		unset.language = Some(String::new());
+		let index = crate::build_index_with_config(
+			vec![
+				english("/js", "Skripte", "Read the FAQ. Use JS."),
+				english(
+					"/cs",
+					"Sprachen",
+					"C# is great. We also like C++ for speed.",
+				),
+				page("/uns", "Über uns", "Wir sind ein kleines Team."),
+				page("/ki", "Werkzeuge", "Wir arbeiten mit KI."),
+				tagged,
+				unset,
+			],
+			&german(),
+		)
+		.unwrap();
+		assert_eq!(hrefs(&index, "KI"), ["/ki"]);
+		assert_eq!(hrefs(&index, "JS"), ["/js"]);
+		assert_eq!(hrefs(&index, "C#")[0], "/cs");
+		assert_eq!(hrefs(&index, "C++")[0], "/cs");
+		assert_eq!(hrefs(&index, "Über uns")[0], "/uns");
+		assert_eq!(
+			hrefs(&index, "Stress"),
+			["/unset"],
+			"an empty language is unset"
+		);
+		assert_eq!(hrefs(&index, "Über")[0], "/vs", "an author keyword");
+		assert!(
+			!hrefs(&index, "vs").contains(&"/vs".to_string()),
+			"an English stop word in the keywords, dropped as on main"
+		);
+	}
+
+	/// The tie-break's reading order covers every candidate RAKE returns, so a
+	/// change in how the rake crate splits phrases fails here rather than
+	/// silently reordering ties.
+	#[test]
+	fn phrase_order_covers_every_rake_candidate() {
+		let body = "Wenn der Stress steigt, melden sich die Alarme. Achtsamkeit hilft, \
+		            den Wendepunkt früh zu erkennen. Im Coaching lösen wir Blockaden.";
+		let words = include_str!("../german.stop")
+			.lines()
+			.filter(|line| !line.is_empty() && !line.starts_with('#'))
+			.map(str::to_lowercase)
+			.collect::<std::collections::HashSet<_>>();
+		let fragments = crate::clauses(body);
+		let order = crate::phrase_order(&fragments, &words);
+		let rake = rake::Rake::new(rake::StopWords::from(words));
+		let candidates = rake.run_fragments(fragments.iter().map(String::as_str));
+		assert!(!candidates.is_empty());
+		for candidate in candidates {
+			assert!(
+				order.contains_key(&candidate.keyword),
+				"{}",
+				candidate.keyword
+			);
+		}
+	}
+
+	/// Words the query side keeps whole are indexed whole: a slash compound, a
+	/// bracketed plural, a URL, a dotted initialism and a file extension.
+	#[test]
+	fn compound_words_stay_whole() {
+		let index = crate::build_index(vec![page(
+			"/ci",
+			"Pipelines",
+			"Set up CI/CD here. Notify the user(s) here. See https://example.com/docs. \
+			 Prices differ in the U.K. today. Files end in .js today.",
+		)])
+		.unwrap();
+		for query in [
+			"CI/CD",
+			"user(s)",
+			"https://example.com/docs",
+			"U.K.",
+			".js",
+		] {
+			assert_eq!(hrefs(&index, query), ["/ci"], "{query}");
+		}
+	}
+
+	/// Where an author wraps a paragraph does not change the clauses.
+	#[test]
+	fn soft_wraps_do_not_change_the_clauses() {
+		assert_eq!(
+			crate::clauses("Choose which capabilities\nare active for the plugin\ntoday."),
+			crate::clauses("Choose which capabilities are active for the plugin today.")
+		);
+	}
+
+	/// The tie-break order covers RAKE's candidates under the English list too,
+	/// the path every existing index takes.
+	#[test]
+	fn phrase_order_covers_english_candidates() {
+		let body = "It doesn’t work. Then node.js runs; \"quoted\" words follow. \
+		            Set up CI/CD for user(s) (see U.K.). Files end in .js today.";
+		let words = include_str!("../english.stop")
+			.lines()
+			.filter(|line| !line.is_empty() && !line.starts_with('#'))
+			.map(str::to_lowercase)
+			.collect::<std::collections::HashSet<_>>();
+		let fragments = crate::clauses(body);
+		let order = crate::phrase_order(&fragments, &words);
+		let rake = rake::Rake::new(rake::StopWords::from(words));
+		let candidates = rake.run_fragments(fragments.iter().map(String::as_str));
+		assert!(!candidates.is_empty());
+		for candidate in candidates {
+			assert!(
+				order.contains_key(&candidate.keyword),
+				"{}",
+				candidate.keyword
+			);
+		}
+	}
+
+	/// A title of stop words keeps only words of three letters or more, so
+	/// "About Us" does not answer a query for "JS" one edit away.
+	#[test]
+	fn a_stop_word_title_keeps_no_short_words() {
+		let index = crate::build_index(vec![
+			page("/about", "About Us", "We are a small team."),
+			page("/js", "Scripting", "Write scripts in JS."),
+		])
+		.unwrap();
+		assert_eq!(hrefs(&index, "JS"), ["/js"]);
+		assert_eq!(hrefs(&index, "about")[0], "/about");
 	}
 }
