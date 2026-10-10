@@ -430,6 +430,27 @@ pub fn build_index_with_config(
 				single_word_budget -= 1;
 			} else if whitespace_count == 1 && double_word_budget > 0 {
 				double_word_budget -= 1;
+			} else if whitespace_count >= 2 {
+				// A clause of three or more content words is too long to keep
+				// as one keyword, but its words are what a reader searches
+				// for ("Wendepunkt" in "Wendepunkt früh erkennen"). Each
+				// unseen word of two or more characters takes a single-word
+				// slot, in clause order, with the clause's score.
+				for word in keyword.split(' ') {
+					if single_word_budget == 0 {
+						break;
+					}
+					if word.chars().count() < 2 || keyword_set.contains(word) {
+						continue;
+					}
+					single_word_budget -= 1;
+					keywords.push((word.to_string(), k.score));
+					keyword_set.insert(word.to_string());
+				}
+				if single_word_budget == 0 && double_word_budget == 0 {
+					break;
+				}
+				continue;
 			} else {
 				continue;
 			}
