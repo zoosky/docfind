@@ -1070,6 +1070,9 @@ mod tests {
 						0 => " Wenn der Stress steigt, melden sich die Alarme des Körpers.",
 						1 => " Achtsamkeit hilft, den Wendepunkt früh zu erkennen.",
 						2 => " Im Coaching lösen wir Blockaden Schritt für Schritt.",
+						// Three or more content words in one clause: too long
+						// to keep as one keyword, so its words must be.
+						3 => " Beratung stärkt Resilienz nachhaltig spürbar.",
 						_ => "",
 					};
 					page(
@@ -1088,6 +1091,8 @@ mod tests {
 			("Wendepunkt", "/seite-1"),
 			("Coaching", "/seite-2"),
 			("Blockaden", "/seite-2"),
+			("Resilienz", "/seite-3"),
+			("nachhaltig", "/seite-3"),
 		] {
 			assert_eq!(hrefs(&index, query), [href], "{query}");
 		}
