@@ -1073,6 +1073,9 @@ mod tests {
 						// Three or more content words in one clause: too long
 						// to keep as one keyword, so its words must be.
 						3 => " Beratung stärkt Resilienz nachhaltig spürbar.",
+						// The second word of a kept pair: prefix matching
+						// never reaches it inside "kostenloses erstgespräch".
+						4 => " Ein kostenloses Erstgespräch.",
 						_ => "",
 					};
 					page(
@@ -1093,6 +1096,7 @@ mod tests {
 			("Blockaden", "/seite-2"),
 			("Resilienz", "/seite-3"),
 			("nachhaltig", "/seite-3"),
+			("Erstgespräch", "/seite-4"),
 		] {
 			assert_eq!(hrefs(&index, query), [href], "{query}");
 		}

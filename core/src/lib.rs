@@ -426,16 +426,25 @@ pub fn build_index_with_config(
 
 			let whitespace_count = keyword.matches(' ').count();
 
+			let mut kept = false;
 			if whitespace_count == 0 && single_word_budget > 0 {
 				single_word_budget -= 1;
+				kept = true;
 			} else if whitespace_count == 1 && double_word_budget > 0 {
 				double_word_budget -= 1;
-			} else if whitespace_count >= 2 {
-				// A clause of three or more content words is too long to keep
-				// as one keyword, but its words are what a reader searches
-				// for ("Wendepunkt" in "Wendepunkt früh erkennen"). Each
-				// unseen word of two or more characters takes a single-word
-				// slot, in clause order, with the clause's score.
+				kept = true;
+			}
+			if kept {
+				keywords.push((keyword.clone(), k.score));
+				keyword_set.insert(keyword.clone());
+			}
+			// A phrase's words are what a reader searches for: prefix
+			// matching finds "stress" in the kept pair "stress steigt" but
+			// never "erstgespräch" in "kostenloses erstgespräch", and a
+			// clause of three or more content words is too long to keep at
+			// all. Each unseen word of two or more characters takes a
+			// single-word slot, in clause order, with the clause's score.
+			if whitespace_count >= 1 {
 				for word in keyword.split(' ') {
 					if single_word_budget == 0 {
 						break;
@@ -447,16 +456,7 @@ pub fn build_index_with_config(
 					keywords.push((word.to_string(), k.score));
 					keyword_set.insert(word.to_string());
 				}
-				if single_word_budget == 0 && double_word_budget == 0 {
-					break;
-				}
-				continue;
-			} else {
-				continue;
 			}
-
-			keywords.push((keyword.clone(), k.score));
-			keyword_set.insert(keyword.clone());
 
 			if single_word_budget == 0 && double_word_budget == 0 {
 				break;
