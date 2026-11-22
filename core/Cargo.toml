@@ -6,7 +6,10 @@ edition = "2024"
 [dependencies]
 fst = { version = "0.4", features = ["levenshtein"] }
 serde = { version = "1.0.228", features = ["derive"] }
-postcard = { version = "1.1.3", features = ["alloc", "use-std"] }
+# No default features: the default `heapless-cas` pulls in heapless 0.7, with
+# nine unsound advisories, atomic-polyfill (unmaintained), and a yanked spin.
+# The index uses no heapless type, and the encoding does not change.
+postcard = { version = "1.1.3", default-features = false, features = ["alloc", "use-std"] }
 fsst-rs = "0.5.4"
 rake = { version = "0.3", optional = true }
 rayon = { version = "1.10", optional = true }
