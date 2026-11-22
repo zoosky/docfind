@@ -1435,4 +1435,49 @@ mod tests {
 		assert_eq!(hrefs(&index, "JS"), ["/js"]);
 		assert_eq!(hrefs(&index, "about")[0], "/about");
 	}
+
+	// ========================================================================
+	// Keyword extraction runs on a thread pool with the `parallel` feature.
+	// The merge is in document order, so these hold with and without it.
+	// ========================================================================
+
+	fn many_documents() -> Vec<Document> {
+		(0..300)
+			.map(|i| Document {
+				title: format!("Shared topic {i}"),
+				category: "docs".to_string(),
+				href: format!("/page/{i}"),
+				body: format!(
+					"The scheduler places pod {i} on a node. Each kubelet reports status {}. \
+					 Controllers reconcile the desired state and the observed state.",
+					i % 7
+				),
+				keywords: None,
+				language: None,
+			})
+			.collect()
+	}
+
+	#[test]
+	fn an_index_of_many_documents_builds_the_same_bytes_every_time() {
+		let first = build_index(many_documents()).unwrap().to_bytes().unwrap();
+		for _ in 0..5 {
+			assert_eq!(
+				build_index(many_documents()).unwrap().to_bytes().unwrap(),
+				first
+			);
+		}
+	}
+
+	#[test]
+	fn a_keyword_lists_its_documents_in_document_order_at_equal_score() {
+		let index = build_index(many_documents()).unwrap();
+		let map = fst::Map::new(&index.fst).unwrap();
+		let shared = map.get("shared").expect("a title word is a keyword") as usize;
+		let documents: Vec<usize> = index.keyword_to_documents[shared]
+			.iter()
+			.map(|(document, _)| *document)
+			.collect();
+		assert_eq!(documents, (0..300).collect::<Vec<_>>());
+	}
 }
