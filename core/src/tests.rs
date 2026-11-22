@@ -1435,4 +1435,100 @@ mod tests {
 		assert_eq!(hrefs(&index, "JS"), ["/js"]);
 		assert_eq!(hrefs(&index, "about")[0], "/about");
 	}
+
+	// ========================================================================
+	// Keyword extraction runs on a thread pool with the `parallel` feature.
+	// The merge is in document order, so these hold with and without it.
+	// ========================================================================
+
+	fn many_documents() -> Vec<Document> {
+		(0..300)
+			.map(|i| Document {
+				title: format!("Shared topic {i}"),
+				category: "docs".to_string(),
+				href: format!("/page/{i}"),
+				body: format!(
+					"The scheduler places pod {i} on a node. Each kubelet reports status {}. \
+					 Controllers reconcile the desired state and the observed state.",
+					i % 7
+				),
+				keywords: None,
+				language: None,
+			})
+			.collect()
+	}
+
+	#[test]
+	fn an_index_of_many_documents_builds_the_same_bytes_every_time() {
+		let first = build_index(many_documents()).unwrap().to_bytes().unwrap();
+		for _ in 0..5 {
+			assert_eq!(
+				build_index(many_documents()).unwrap().to_bytes().unwrap(),
+				first
+			);
+		}
+	}
+
+	#[test]
+	fn a_keyword_lists_its_documents_in_document_order_at_equal_score() {
+		let index = build_index(many_documents()).unwrap();
+		let map = fst::Map::new(&index.fst).unwrap();
+		let shared = map.get("shared").expect("a title word is a keyword") as usize;
+		let documents: Vec<usize> = index.keyword_to_documents[shared]
+			.iter()
+			.map(|(document, _)| *document)
+			.collect();
+		assert_eq!(documents, (0..300).collect::<Vec<_>>());
+	}
+
+	#[cfg(feature = "parallel")]
+	#[test]
+	fn the_index_is_the_same_on_one_thread_and_on_many() {
+		let on = |threads: usize| {
+			rayon::ThreadPoolBuilder::new()
+				.num_threads(threads)
+				.build()
+				.unwrap()
+				.install(|| build_index(many_documents()).unwrap().to_bytes().unwrap())
+		};
+		assert_eq!(on(1), on(8));
+	}
+
+	#[test]
+	fn documents_that_share_an_href_keep_their_own_entries() {
+		let doc = |title: &str| Document {
+			title: title.to_string(),
+			category: "docs".to_string(),
+			href: "/same".to_string(),
+			body: String::new(),
+			keywords: None,
+			language: None,
+		};
+		let index = build_index(vec![doc("Alpha"), doc("Bravo")]).unwrap();
+		let map = fst::Map::new(&index.fst).unwrap();
+		let entries = |word: &str| index.keyword_to_documents[map.get(word).unwrap() as usize].clone();
+		assert_eq!(entries("alpha"), vec![(0, 90)]);
+		assert_eq!(entries("bravo"), vec![(1, 90)]);
+	}
+
+	/// FNV-1a, a hash with a fixed definition, so a committed value holds
+	/// across Rust versions.
+	fn fnv1a(bytes: &[u8]) -> u64 {
+		bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+			(hash ^ u64::from(*byte)).wrapping_mul(0x0100_0000_01b3)
+		})
+	}
+
+	// The bytes the index had before the keyword extraction moved to a thread
+	// pool: main at b87e9a5 builds the same.
+	const GOLDEN: (usize, u64) = (29169, 4303284678455826727);
+
+	/// CI runs this with and without the `parallel` feature, so both builds
+	/// must produce these bytes. A change to the extraction that changes the
+	/// index on purpose updates the value here.
+	#[test]
+	fn the_index_bytes_match_the_committed_hash() {
+		let bytes = build_index(many_documents()).unwrap().to_bytes().unwrap();
+		assert_eq!((bytes.len(), fnv1a(&bytes)), GOLDEN);
+	}
 }

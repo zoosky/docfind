@@ -104,6 +104,8 @@ Build the index and generate a WASM module:
 docfind documents.json output
 ```
 
+The CLI extracts the keywords of the documents on all CPU cores. Set `RAYON_NUM_THREADS` to use fewer, for example `RAYON_NUM_THREADS=1` for one thread. The index is the same for every thread count.
+
 This creates:
 - `output/docfind.js` - JavaScript bindings
 - `output/docfind_bg.wasm` - WebAssembly module with embedded index

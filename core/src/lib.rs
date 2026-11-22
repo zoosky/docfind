@@ -282,6 +282,155 @@ fn phrase_order(
 	order
 }
 
+/// The keywords of one document with their scores, in the order the index
+/// takes them: explicit keywords, then title words, then RAKE's body
+/// keywords within the budgets of `config`. `german_doc` selects the German
+/// stop list, which `german` holds when any document of the index needs it.
+#[cfg(any(feature = "cli", test))]
+fn document_keywords(
+	doc: &Document,
+	german_doc: bool,
+	config: &IndexConfig,
+	english: &std::collections::HashSet<String>,
+	english_rake: &rake::Rake,
+	german: Option<&(std::collections::HashSet<String>, rake::Rake)>,
+) -> Vec<(String, f64)> {
+	use std::collections::HashSet;
+
+	let mut keyword_set: HashSet<String> = HashSet::new();
+	let mut keywords: Vec<(String, f64)> = Vec::new();
+
+	let (sw, rake) = match german {
+		Some((words, rake)) if german_doc => (words, rake),
+		_ => (english, english_rake),
+	};
+
+	// Explicit keywords skip the English stop words only, as before
+	// languages existed: "MIT" or "Über" on a German page stays.
+	if let Some(kw) = &doc.keywords {
+		for k in kw {
+			let keyword = k
+				.trim_matches(|c: char| !c.is_alphanumeric())
+				.to_lowercase();
+			if !keyword.is_empty() && !english.contains(&keyword) && !keyword_set.contains(&keyword) {
+				keywords.push((keyword.clone(), 100.0));
+				keyword_set.insert(keyword.clone());
+			}
+		}
+	}
+
+	// add keywords from title; a title made only of stop words, such as
+	// "Über uns", keeps those of three letters or more, or its page could
+	// not be found by name
+	let title_words = doc
+		.title
+		.split_whitespace()
+		.map(|w| {
+			w.trim_matches(|c: char| !c.is_alphanumeric())
+				.to_lowercase()
+		})
+		.filter(|w| !w.is_empty())
+		.collect::<HashSet<String>>(); // deduplicate
+	let content_words = title_words
+		.iter()
+		.filter(|w| !sw.contains(*w))
+		.cloned()
+		.collect::<HashSet<String>>();
+	let title_keywords = if content_words.is_empty() {
+		title_words
+			.into_iter()
+			.filter(|w| w.chars().count() >= 3)
+			.collect()
+	} else {
+		content_words
+	};
+	let mut title_keywords: Vec<String> = title_keywords.into_iter().collect();
+	title_keywords.sort();
+	for tk in title_keywords {
+		if !keyword_set.contains(&tk) {
+			keywords.push((tk.clone(), 90.0));
+			keyword_set.insert(tk.clone());
+		}
+	}
+
+	let fragments = clauses(&doc.body);
+	let order = phrase_order(&fragments, sw);
+	let mut body_keywords = rake.run_fragments(fragments.iter().map(String::as_str));
+	// RAKE collects its candidates in a hash map and sorts by score alone,
+	// so keywords of equal score come out in hash order, and the budget
+	// below would keep a different subset on every run. Ties are broken by
+	// where the keyword first appears in the body, so the subset the budget
+	// keeps is the one a reader meets first, the same on every run and on
+	// every page, rather than the alphabetically earliest words sitewide;
+	// the keyword itself settles the rest. The positions come from the
+	// clause scan, once per candidate, so a long page sorts in
+	// O(k log k). total_cmp keeps the order total even for a score that
+	// is not a number.
+	let first_at = |k: &rake::KeywordScore| order.get(&k.keyword).copied().unwrap_or(usize::MAX);
+	body_keywords.sort_by(|a, b| {
+		b.score
+			.total_cmp(&a.score)
+			.then_with(|| first_at(a).cmp(&first_at(b)))
+			.then_with(|| a.keyword.cmp(&b.keyword))
+	});
+	let mut single_word_budget = config.single_word_budget;
+	let mut double_word_budget = config.multi_word_budget;
+
+	for k in &body_keywords {
+		let keyword = k.keyword.to_lowercase();
+
+		// A lone character matches every short query within one edit.
+		if keyword.chars().count() < 2 {
+			continue;
+		}
+
+		// continue if keyword is already in title keywords
+		if keyword_set.contains(&keyword) {
+			continue;
+		}
+
+		let whitespace_count = keyword.matches(' ').count();
+
+		let mut kept = false;
+		if whitespace_count == 0 && single_word_budget > 0 {
+			single_word_budget -= 1;
+			kept = true;
+		} else if whitespace_count == 1 && double_word_budget > 0 {
+			double_word_budget -= 1;
+			kept = true;
+		}
+		if kept {
+			keywords.push((keyword.clone(), k.score));
+			keyword_set.insert(keyword.clone());
+		}
+		// A phrase's words are what a reader searches for: prefix
+		// matching finds "stress" in the kept pair "stress steigt" but
+		// never "erstgespräch" in "kostenloses erstgespräch", and a
+		// clause of three or more content words is too long to keep at
+		// all. Each unseen word of two or more characters takes a
+		// single-word slot, in clause order, with the clause's score.
+		if whitespace_count >= 1 {
+			for word in keyword.split(' ') {
+				if single_word_budget == 0 {
+					break;
+				}
+				if word.chars().count() < 2 || keyword_set.contains(word) {
+					continue;
+				}
+				single_word_budget -= 1;
+				keywords.push((word.to_string(), k.score));
+				keyword_set.insert(word.to_string());
+			}
+		}
+
+		if single_word_budget == 0 && double_word_budget == 0 {
+			break;
+		}
+	}
+
+	keywords
+}
+
 /// Build a search index from the given documents using default keyword budgets.
 #[cfg(any(feature = "cli", test))]
 pub fn build_index(documents: Vec<Document>) -> Result<Index, Box<dyn std::error::Error>> {
@@ -289,6 +438,10 @@ pub fn build_index(documents: Vec<Document>) -> Result<Index, Box<dyn std::error
 }
 
 /// Build a search index from the given documents with custom keyword extraction settings.
+///
+/// With the `parallel` feature, the keyword extraction runs on the current
+/// rayon pool: the global pool, or the pool of an enclosing
+/// `ThreadPool::install`, which is how a caller limits the threads.
 #[cfg(any(feature = "cli", test))]
 pub fn build_index_with_config(
 	documents: Vec<Document>,
@@ -321,153 +474,51 @@ pub fn build_index_with_config(
 		(words, rake)
 	});
 
-	let mut strings: Vec<&str> = Vec::new();
-	let mut keywords_to_documents: HashMap<String, Vec<(&Document, f64)>> = HashMap::new();
-	let mut doc_index_map: HashMap<&str, usize> = HashMap::new();
+	// Each document's keywords depend on that document alone. With the
+	// `parallel` feature they are extracted first, on the caller's current
+	// rayon pool, and merged below in document order. Without it, each
+	// document is extracted as the merge reaches it, so only one keyword list
+	// is held at a time. The merge order is what the index depends on, so the
+	// index is the same with and without the feature. The lists the parallel
+	// path holds are small: the budgets cap each at about 30 keywords.
+	let extract = |doc: &Document| {
+		document_keywords(
+			doc,
+			language_of(doc),
+			config,
+			&english,
+			&english_rake,
+			german.as_ref(),
+		)
+	};
+	#[cfg(feature = "parallel")]
+	let per_document = {
+		use rayon::prelude::*;
+		documents
+			.par_iter()
+			.map(extract)
+			.collect::<Vec<Vec<(String, f64)>>>()
+			.into_iter()
+	};
+	#[cfg(not(feature = "parallel"))]
+	let per_document = documents.iter().map(extract);
 
-	for (doc_index, doc) in documents.iter().enumerate() {
-		doc_index_map.insert(&doc.href, doc_index);
+	let mut strings: Vec<&str> = Vec::new();
+	// A keyword entry holds its document's position, not its href: two
+	// documents may share an href, and each keeps its own entries.
+	let mut keywords_to_documents: HashMap<String, Vec<(usize, f64)>> = HashMap::new();
+
+	for (doc_index, (doc, keywords)) in documents.iter().zip(per_document).enumerate() {
 		strings.push(&doc.title);
 		strings.push(&doc.category);
 		strings.push(&doc.href);
 		strings.push(&doc.body);
 
-		let mut keyword_set: HashSet<String> = HashSet::new();
-		let mut keywords: Vec<(String, f64)> = Vec::new();
-
-		let (sw, rake) = match &german {
-			Some((words, rake)) if language_of(doc) => (words, rake),
-			_ => (&english, &english_rake),
-		};
-
-		// Explicit keywords skip the English stop words only, as before
-		// languages existed: "MIT" or "Über" on a German page stays.
-		if let Some(kw) = &doc.keywords {
-			for k in kw {
-				let keyword = k
-					.trim_matches(|c: char| !c.is_alphanumeric())
-					.to_lowercase();
-				if !keyword.is_empty() && !english.contains(&keyword) && !keyword_set.contains(&keyword) {
-					keywords.push((keyword.clone(), 100.0));
-					keyword_set.insert(keyword.clone());
-				}
-			}
-		}
-
-		// add keywords from title; a title made only of stop words, such as
-		// "Über uns", keeps those of three letters or more, or its page could
-		// not be found by name
-		let title_words = doc
-			.title
-			.split_whitespace()
-			.map(|w| {
-				w.trim_matches(|c: char| !c.is_alphanumeric())
-					.to_lowercase()
-			})
-			.filter(|w| !w.is_empty())
-			.collect::<HashSet<String>>(); // deduplicate
-		let content_words = title_words
-			.iter()
-			.filter(|w| !sw.contains(*w))
-			.cloned()
-			.collect::<HashSet<String>>();
-		let title_keywords = if content_words.is_empty() {
-			title_words
-				.into_iter()
-				.filter(|w| w.chars().count() >= 3)
-				.collect()
-		} else {
-			content_words
-		};
-		let mut title_keywords: Vec<String> = title_keywords.into_iter().collect();
-		title_keywords.sort();
-		for tk in title_keywords {
-			if !keyword_set.contains(&tk) {
-				keywords.push((tk.clone(), 90.0));
-				keyword_set.insert(tk.clone());
-			}
-		}
-
-		let fragments = clauses(&doc.body);
-		let order = phrase_order(&fragments, sw);
-		let mut body_keywords = rake.run_fragments(fragments.iter().map(String::as_str));
-		// RAKE collects its candidates in a hash map and sorts by score alone,
-		// so keywords of equal score come out in hash order, and the budget
-		// below would keep a different subset on every run. Ties are broken by
-		// where the keyword first appears in the body, so the subset the budget
-		// keeps is the one a reader meets first, the same on every run and on
-		// every page, rather than the alphabetically earliest words sitewide;
-		// the keyword itself settles the rest. The positions come from the
-		// clause scan, once per candidate, so a long page sorts in
-		// O(k log k). total_cmp keeps the order total even for a score that
-		// is not a number.
-		let first_at = |k: &rake::KeywordScore| order.get(&k.keyword).copied().unwrap_or(usize::MAX);
-		body_keywords.sort_by(|a, b| {
-			b.score
-				.total_cmp(&a.score)
-				.then_with(|| first_at(a).cmp(&first_at(b)))
-				.then_with(|| a.keyword.cmp(&b.keyword))
-		});
-		let mut single_word_budget = config.single_word_budget;
-		let mut double_word_budget = config.multi_word_budget;
-
-		for k in &body_keywords {
-			let keyword = k.keyword.to_lowercase();
-
-			// A lone character matches every short query within one edit.
-			if keyword.chars().count() < 2 {
-				continue;
-			}
-
-			// continue if keyword is already in title keywords
-			if keyword_set.contains(&keyword) {
-				continue;
-			}
-
-			let whitespace_count = keyword.matches(' ').count();
-
-			let mut kept = false;
-			if whitespace_count == 0 && single_word_budget > 0 {
-				single_word_budget -= 1;
-				kept = true;
-			} else if whitespace_count == 1 && double_word_budget > 0 {
-				double_word_budget -= 1;
-				kept = true;
-			}
-			if kept {
-				keywords.push((keyword.clone(), k.score));
-				keyword_set.insert(keyword.clone());
-			}
-			// A phrase's words are what a reader searches for: prefix
-			// matching finds "stress" in the kept pair "stress steigt" but
-			// never "erstgespräch" in "kostenloses erstgespräch", and a
-			// clause of three or more content words is too long to keep at
-			// all. Each unseen word of two or more characters takes a
-			// single-word slot, in clause order, with the clause's score.
-			if whitespace_count >= 1 {
-				for word in keyword.split(' ') {
-					if single_word_budget == 0 {
-						break;
-					}
-					if word.chars().count() < 2 || keyword_set.contains(word) {
-						continue;
-					}
-					single_word_budget -= 1;
-					keywords.push((word.to_string(), k.score));
-					keyword_set.insert(word.to_string());
-				}
-			}
-
-			if single_word_budget == 0 && double_word_budget == 0 {
-				break;
-			}
-		}
-
-		for k in keywords.iter() {
+		for (keyword, score) in keywords {
 			keywords_to_documents
-				.entry(k.0.clone())
+				.entry(keyword)
 				.or_default()
-				.push((doc, k.1));
+				.push((doc_index, score));
 		}
 	}
 
@@ -482,11 +533,14 @@ pub fn build_index_with_config(
 		fst_builder.insert(keyword, index as u64)?;
 
 		let mut doc_scores = keywords_to_documents.get(keyword).unwrap().clone();
-		doc_scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+		// A score that is not a number sorts as 0, the value `as u8` stores
+		// for it, so it goes last and never panics the sort.
+		let score = |s: f64| if s.is_nan() { 0.0 } else { s };
+		doc_scores.sort_by(|a, b| score(b.1).total_cmp(&score(a.1)));
 
 		let entry = doc_scores
 			.iter()
-			.map(|(doc, score)| (doc_index_map[doc.href.as_str()], *score as u8))
+			.map(|(doc_index, score)| (*doc_index, *score as u8))
 			.collect::<Vec<(usize, u8)>>();
 
 		keyword_to_documents.push(entry);

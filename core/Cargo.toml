@@ -9,12 +9,16 @@ serde = { version = "1.0.228", features = ["derive"] }
 postcard = { version = "1.1.3", features = ["alloc", "use-std"] }
 fsst-rs = "0.5.4"
 rake = { version = "0.3", optional = true }
+rayon = { version = "1.10", optional = true }
 
 [dev-dependencies]
 serde_json = "1.0.145"
 
 [features]
 cli = ["rake"]
+# Extract each document's keywords on the current rayon pool. The index is
+# the same with and without it. Not for the wasm target, which has no threads.
+parallel = ["cli", "dep:rayon"]
 wasm = []
 native = []
 
