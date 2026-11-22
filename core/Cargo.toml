@@ -16,8 +16,8 @@ serde_json = "1.0.145"
 
 [features]
 cli = ["rake"]
-# Extract each document's keywords on a thread pool. The index is the same
-# with and without it. Not for the wasm target, which has no threads.
+# Extract each document's keywords on the current rayon pool. The index is
+# the same with and without it. Not for the wasm target, which has no threads.
 parallel = ["cli", "dep:rayon"]
 wasm = []
 native = []

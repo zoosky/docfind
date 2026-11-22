@@ -1480,4 +1480,34 @@ mod tests {
 			.collect();
 		assert_eq!(documents, (0..300).collect::<Vec<_>>());
 	}
+
+	#[cfg(feature = "parallel")]
+	#[test]
+	fn the_index_is_the_same_on_one_thread_and_on_many() {
+		let on = |threads: usize| {
+			rayon::ThreadPoolBuilder::new()
+				.num_threads(threads)
+				.build()
+				.unwrap()
+				.install(|| build_index(many_documents()).unwrap().to_bytes().unwrap())
+		};
+		assert_eq!(on(1), on(8));
+	}
+
+	#[test]
+	fn documents_that_share_an_href_keep_their_own_entries() {
+		let doc = |title: &str| Document {
+			title: title.to_string(),
+			category: "docs".to_string(),
+			href: "/same".to_string(),
+			body: String::new(),
+			keywords: None,
+			language: None,
+		};
+		let index = build_index(vec![doc("Alpha"), doc("Bravo")]).unwrap();
+		let map = fst::Map::new(&index.fst).unwrap();
+		let entries = |word: &str| index.keyword_to_documents[map.get(word).unwrap() as usize].clone();
+		assert_eq!(entries("alpha"), vec![(0, 90)]);
+		assert_eq!(entries("bravo"), vec![(1, 90)]);
+	}
 }

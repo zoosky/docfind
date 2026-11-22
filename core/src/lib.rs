@@ -438,6 +438,10 @@ pub fn build_index(documents: Vec<Document>) -> Result<Index, Box<dyn std::error
 }
 
 /// Build a search index from the given documents with custom keyword extraction settings.
+///
+/// With the `parallel` feature, the keyword extraction runs on the current
+/// rayon pool: the global pool, or the pool of an enclosing
+/// `ThreadPool::install`, which is how a caller limits the threads.
 #[cfg(any(feature = "cli", test))]
 pub fn build_index_with_config(
 	documents: Vec<Document>,
@@ -470,10 +474,12 @@ pub fn build_index_with_config(
 		(words, rake)
 	});
 
-	// Each document's keywords depend on that document alone, so they are
-	// extracted first, in parallel with the `parallel` feature, and merged
-	// below in document order. The merge order is what the index depends on,
-	// so the index is the same with and without the feature.
+	// Each document's keywords depend on that document alone. With the
+	// `parallel` feature they are extracted first, on the caller's current
+	// rayon pool, and merged below in document order. Without it, each
+	// document is extracted as the merge reaches it, so only one keyword list
+	// is held at a time. The merge order is what the index depends on, so the
+	// index is the same with and without the feature.
 	let extract = |doc: &Document| {
 		document_keywords(
 			doc,
@@ -485,19 +491,23 @@ pub fn build_index_with_config(
 		)
 	};
 	#[cfg(feature = "parallel")]
-	let per_document: Vec<Vec<(String, f64)>> = {
+	let per_document = {
 		use rayon::prelude::*;
-		documents.par_iter().map(extract).collect()
+		documents
+			.par_iter()
+			.map(extract)
+			.collect::<Vec<Vec<(String, f64)>>>()
+			.into_iter()
 	};
 	#[cfg(not(feature = "parallel"))]
-	let per_document: Vec<Vec<(String, f64)>> = documents.iter().map(extract).collect();
+	let per_document = documents.iter().map(extract);
 
 	let mut strings: Vec<&str> = Vec::new();
-	let mut keywords_to_documents: HashMap<String, Vec<(&Document, f64)>> = HashMap::new();
-	let mut doc_index_map: HashMap<&str, usize> = HashMap::new();
+	// A keyword entry holds its document's position, not its href: two
+	// documents may share an href, and each keeps its own entries.
+	let mut keywords_to_documents: HashMap<String, Vec<(usize, f64)>> = HashMap::new();
 
 	for (doc_index, (doc, keywords)) in documents.iter().zip(per_document).enumerate() {
-		doc_index_map.insert(&doc.href, doc_index);
 		strings.push(&doc.title);
 		strings.push(&doc.category);
 		strings.push(&doc.href);
@@ -507,7 +517,7 @@ pub fn build_index_with_config(
 			keywords_to_documents
 				.entry(keyword)
 				.or_default()
-				.push((doc, score));
+				.push((doc_index, score));
 		}
 	}
 
@@ -522,11 +532,12 @@ pub fn build_index_with_config(
 		fst_builder.insert(keyword, index as u64)?;
 
 		let mut doc_scores = keywords_to_documents.get(keyword).unwrap().clone();
-		doc_scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+		// total_cmp: a score that is not a number sorts, and does not panic.
+		doc_scores.sort_by(|a, b| b.1.total_cmp(&a.1));
 
 		let entry = doc_scores
 			.iter()
-			.map(|(doc, score)| (doc_index_map[doc.href.as_str()], *score as u8))
+			.map(|(doc_index, score)| (*doc_index, *score as u8))
 			.collect::<Vec<(usize, u8)>>();
 
 		keyword_to_documents.push(entry);
