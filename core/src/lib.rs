@@ -479,7 +479,8 @@ pub fn build_index_with_config(
 	// rayon pool, and merged below in document order. Without it, each
 	// document is extracted as the merge reaches it, so only one keyword list
 	// is held at a time. The merge order is what the index depends on, so the
-	// index is the same with and without the feature.
+	// index is the same with and without the feature. The lists the parallel
+	// path holds are small: the budgets cap each at about 30 keywords.
 	let extract = |doc: &Document| {
 		document_keywords(
 			doc,
@@ -532,8 +533,10 @@ pub fn build_index_with_config(
 		fst_builder.insert(keyword, index as u64)?;
 
 		let mut doc_scores = keywords_to_documents.get(keyword).unwrap().clone();
-		// total_cmp: a score that is not a number sorts, and does not panic.
-		doc_scores.sort_by(|a, b| b.1.total_cmp(&a.1));
+		// A score that is not a number sorts as 0, the value `as u8` stores
+		// for it, so it goes last and never panics the sort.
+		let score = |s: f64| if s.is_nan() { 0.0 } else { s };
+		doc_scores.sort_by(|a, b| score(b.1).total_cmp(&score(a.1)));
 
 		let entry = doc_scores
 			.iter()

@@ -1510,4 +1510,25 @@ mod tests {
 		assert_eq!(entries("alpha"), vec![(0, 90)]);
 		assert_eq!(entries("bravo"), vec![(1, 90)]);
 	}
+
+	/// FNV-1a, a hash with a fixed definition, so a committed value holds
+	/// across Rust versions.
+	fn fnv1a(bytes: &[u8]) -> u64 {
+		bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+			(hash ^ u64::from(*byte)).wrapping_mul(0x0100_0000_01b3)
+		})
+	}
+
+	// The bytes the index had before the keyword extraction moved to a thread
+	// pool: main at b87e9a5 builds the same.
+	const GOLDEN: (usize, u64) = (29169, 4303284678455826727);
+
+	/// CI runs this with and without the `parallel` feature, so both builds
+	/// must produce these bytes. A change to the extraction that changes the
+	/// index on purpose updates the value here.
+	#[test]
+	fn the_index_bytes_match_the_committed_hash() {
+		let bytes = build_index(many_documents()).unwrap().to_bytes().unwrap();
+		assert_eq!((bytes.len(), fnv1a(&bytes)), GOLDEN);
+	}
 }
